@@ -132,7 +132,7 @@ namespace TeaLeaves.UI
                     continue;
                 }
 
-                string fullPath = path.TrimEnd('/') + "/" + fileName;
+                string fullPath = path.EndsWith("://") ? path + fileName : path.TrimEnd('/') + "/" + fileName;
 
                 if (dir.CurrentIsDir())
                 {
@@ -656,7 +656,9 @@ namespace TeaLeaves.UI
 
             if (args.ValueKind == JsonValueKind.Object)
             {
-                if (args.TryGetProperty("type", out var typeProp))
+                if (args.TryGetProperty("type_filter", out var tfProp))
+                    typeFilter = tfProp.GetString();
+                else if (args.TryGetProperty("type", out var typeProp))
                     typeFilter = typeProp.GetString();
                 if (args.TryGetProperty("search", out var searchProp))
                     search = searchProp.GetString();
@@ -667,7 +669,7 @@ namespace TeaLeaves.UI
                 if (!string.IsNullOrEmpty(typeFilter) && a.Type != typeFilter) return false;
                 if (!string.IsNullOrEmpty(search) && !a.Path.Contains(search, StringComparison.OrdinalIgnoreCase)) return false;
                 return true;
-            }).Select(a => new { a.Path, a.Type, a.SizeBytes }).ToList();
+            }).Select(a => new { path = a.Path, type = a.Type, type_label = a.TypeLabel, size_bytes = a.SizeBytes }).ToList();
 
             return new CommandResult(true, $"Found {results.Count} assets", new { count = results.Count, assets = results });
         }

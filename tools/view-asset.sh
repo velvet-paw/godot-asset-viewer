@@ -22,7 +22,11 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 echo "📦 Importing ${ASSET_NAME}..."
 "$SCRIPT_DIR/import-asset.sh" "$ASSET_NAME"
 
-# Step 2: Launch Asset Viewer
+# Step 2: Run Godot import pass so assets are recognized
+echo "🔄 Running Godot import pass..."
+"$SCRIPT_DIR/godot.sh" --headless --import 2>/dev/null
+
+# Step 3: Launch Asset Viewer
 echo ""
 echo "🚀 Launching Asset Viewer..."
 "$SCRIPT_DIR/godot.sh" --scene res://ui/asset_viewer/AssetViewer.tscn
