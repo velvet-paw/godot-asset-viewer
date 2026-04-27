@@ -1,0 +1,48 @@
+{
+  "description": "Example sequence demonstrating all step types",
+  "steps": [
+    {
+      "type": "wait",
+      "seconds": 0.5,
+      "_comment": "Wait for scene to stabilize"
+    },
+    {
+      "type": "tap",
+      "action": "ui_accept",
+      "_comment": "Single-frame press and release"
+    },
+    {
+      "type": "wait",
+      "seconds": 1.0
+    },
+    {
+      "type": "hold",
+      "action": "ui_right",
+      "seconds": 2.0,
+      "_comment": "Press, hold for duration, then release"
+    },
+    {
+      "type": "press",
+      "action": "ui_up",
+      "_comment": "Press and keep held until explicit release"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.5
+    },
+    {
+      "type": "release",
+      "action": "ui_up",
+      "_comment": "Release the previously pressed action"
+    },
+    {
+      "type": "screenshot",
+      "filename": "sequence_test.png",
+      "_comment": "Capture current frame"
+    },
+    {
+      "type": "clear",
+      "_comment": "Release all active simulated inputs"
+    }
+  ]
+}

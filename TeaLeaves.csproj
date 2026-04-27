@@ -1,0 +1,17 @@
+<Project Sdk="Godot.NET.Sdk/4.6.0">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework Condition=" '$(GodotTargetPlatform)' == 'android' ">net9.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="gdUnit4.api" Version="5.*" />
+    <PackageReference Include="gdUnit4.test.adapter" Version="3.*" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Exclude gdUnit4 addon's internal tests - not part of our project -->
+    <Compile Remove="addons/gdUnit4/test/**/*.cs" />
+  </ItemGroup>
+</Project>
