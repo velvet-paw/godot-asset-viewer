@@ -55,8 +55,10 @@ def get_user_data_path(project_path: Path) -> Path:
         return base / "Godot" / "app_userdata" / project_name
     elif sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "Godot" / "app_userdata" / project_name
-    else:  # Linux
-        return Path.home() / ".local" / "share" / "godot" / "app_userdata" / project_name
+    else:  # Linux - respect XDG_DATA_HOME
+        xdg_data = os.environ.get("XDG_DATA_HOME")
+        base = Path(xdg_data) if xdg_data else Path.home() / ".local" / "share"
+        return base / "godot" / "app_userdata" / project_name
 
 
 def send_command(project_path: Path, action: str, args: dict = None, timeout: float = 30.0) -> dict:

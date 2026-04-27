@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Operational instructions for coding agents in `C:\Projects\Godot\tea-leaves`.
+Operational instructions for AI coding agents working in this repository.
 
 ## Mission
 
@@ -13,7 +13,7 @@ Ship correct Godot features quickly with automatic verification. Do not wait for
 - GDScript: editor tooling and tiny glue scripts only.
 - Physics: Jolt.
 - Renderer: Forward Plus.
-- Target platform: Windows (D3D12).
+- Target platform: Linux (Vulkan).
 
 ## Hard Rules (Non-Negotiable)
 
@@ -64,11 +64,11 @@ If no exception applies, test creation is mandatory.
 
 Run all commands below for any code/scene/resource/tooling change:
 
-```powershell
+```bash
 dotnet build -warnaserror
 dotnet test
-pwsh ./tools/test.ps1
-pwsh ./tools/godot.ps1 --headless --script res://tools/lint_project.gd
+./tools/test.sh
+./tools/godot.sh --headless --script res://tools/lint_project.gd
 ```
 
 Do not mark the task complete until this gate passes, or blockers are explicitly documented.
@@ -82,8 +82,8 @@ Rows are additive to the Global Verification Gate; they do not replace it.
 |---|---|
 | `*.cs`, `*.csproj`, `*.sln` | `dotnet restore` (when needed), then Global Verification Gate |
 | `*.tscn`, `*.tres`, `*.res`, `*.uid`, `project.godot` | Global Verification Gate; if only specific scenes changed, also run targeted scene lint with `-- --scene res://...` during iteration |
-| `*.gdshader` | Global Verification Gate + `pwsh ./tools/godot.ps1 --headless --script res://tools/lint_shaders.gd` |
-| `*.gd` | `gdlint <each_changed_file.gd>` + semantic parse check `pwsh ./tools/godot.ps1 --headless --check-only --script res://path/to/file.gd`; if test files changed, `pwsh ./tools/lint_tests.ps1`; then Global Verification Gate |
+| `*.gdshader` | Global Verification Gate + `./tools/godot.sh --headless --script res://tools/lint_shaders.gd` |
+| `*.gd` | `gdlint <each_changed_file.gd>` + semantic parse check `./tools/godot.sh --headless --check-only --script res://path/to/file.gd`; if test files changed, `./tools/lint_tests.sh`; then Global Verification Gate |
 | Input/tooling changes (`tools/setup_input_actions_cli.gd`, input maps) | re-run setup script, then Global Verification Gate |
 | Gameplay behavior (movement, camera, combat, interaction, UI flow) | Global Verification Gate + DevTools runtime loop: `ping`, relevant `input` simulation, `screenshot`, `validate-all`, `performance`, `input clear` |
 
@@ -92,7 +92,7 @@ Rows are additive to the Global Verification Gate; they do not replace it.
 Godot UID integrity is part of correctness.
 
 1. After hand-editing scenes/resources or adding scripts/shaders, run:
-   - `pwsh ./tools/godot.ps1 --headless --script res://tools/lint_project.gd`
+   - `./tools/godot.sh --headless --script res://tools/lint_project.gd`
 2. If lint rewrites UIDs, update any stale `uid://...` references immediately.
 3. Re-run lint until clean.
 4. Always include generated `*.uid` files in the change set.
@@ -101,7 +101,7 @@ Godot UID integrity is part of correctness.
 
 For any gameplay-visible change, do all of the following automatically:
 
-1. Ensure game is running: `pwsh ./tools/godot.ps1` (if not already running).
+1. Ensure game is running: `./tools/godot.sh` (if not already running).
 2. Verify DevTools: `python tools/devtools.py ping`.
 3. Simulate relevant actions using `python tools/devtools.py input ...` or a sequence file.
 4. Capture at least one screenshot:
@@ -115,34 +115,34 @@ For any gameplay-visible change, do all of the following automatically:
 If DevTools is unreachable, continue all non-runtime checks and report the runtime blocker explicitly.
 
 Store/report screenshot artifact path (default Godot user data location):
-- `%APPDATA%/Godot/app_userdata/TeaLeaves/screenshots/`
+- `~/.local/share/godot/app_userdata/GodotAssetViewer/screenshots/`
 
 ## Build/Test/Lint Command Set
 
-```powershell
+```bash
 # C# restore/build/tests
 dotnet restore
 dotnet build -warnaserror
 dotnet test
 
 # Godot runtime test suite (gdUnit4)
-pwsh ./tools/test.ps1
-pwsh ./tools/test.ps1 -Test "res://test/unit/"
-pwsh ./tools/test.ps1 -TimeoutSeconds 120
+./tools/test.sh
+./tools/test.sh --test "res://test/unit/"
+./tools/test.sh --timeout 120
 
 # Project and shader lint
-pwsh ./tools/godot.ps1 --headless --script res://tools/lint_project.gd
-pwsh ./tools/godot.ps1 --headless --script res://tools/lint_project.gd -- --scene res://path/to/scene.tscn
-pwsh ./tools/godot.ps1 --headless --script res://tools/lint_shaders.gd
-pwsh ./tools/godot.ps1 --headless --script res://tools/lint_shaders.gd -- res://path/to/shader.gdshader
+./tools/godot.sh --headless --script res://tools/lint_project.gd
+./tools/godot.sh --headless --script res://tools/lint_project.gd -- --scene res://path/to/scene.tscn
+./tools/godot.sh --headless --script res://tools/lint_shaders.gd
+./tools/godot.sh --headless --script res://tools/lint_shaders.gd -- res://path/to/shader.gdshader
 
 # GDScript lint and test lint
 gdlint path/to/file.gd
-pwsh ./tools/godot.ps1 --headless --check-only --script res://path/to/file.gd
-pwsh ./tools/lint_tests.ps1
+./tools/godot.sh --headless --check-only --script res://path/to/file.gd
+./tools/lint_tests.sh
 
 # Input setup
-pwsh ./tools/godot.ps1 --headless --script res://tools/setup_input_actions_cli.gd
+./tools/godot.sh --headless --script res://tools/setup_input_actions_cli.gd
 
 # DevTools runtime checks
 python tools/devtools.py ping
@@ -158,11 +158,11 @@ python tools/devtools.py quit
 
 ## Failure Handling Rules
 
-- `tools/test.ps1` exit codes: `0=pass`, `1=test failures`, `124=timeout`.
-- If `pwsh ./tools/test.ps1` exits `124` (timeout), rerun once with `-TimeoutSeconds 120`.
-- If `pwsh ./tools/test.ps1` reports missing `GdUnitCmdTool.gd`, verify files exist under `addons/gdUnit4/bin/` and report as blocker if missing.
+- `tools/test.sh` exit codes: `0=pass`, `1=test failures`, `124=timeout`.
+- If `./tools/test.sh` exits `124` (timeout), rerun once with `--timeout 120`.
+- If `./tools/test.sh` reports missing `GdUnitCmdTool.gd`, verify files exist under `addons/gdUnit4/bin/` and report as blocker if missing.
 - If `dotnet restore` has already succeeded in-session and project files are unchanged, it may be skipped; otherwise run it.
-- If `gdlint` is unavailable, still run Godot semantic check-only for each changed `.gd` file via `pwsh ./tools/godot.ps1 --headless --check-only --script res://path/to/file.gd`.
+- If `gdlint` is unavailable, still run Godot semantic check-only for each changed `.gd` file via `./tools/godot.sh --headless --check-only --script res://path/to/file.gd`.
 - If a required command is unavailable (`gdlint`, Python, Godot), continue remaining checks and report exactly which command could not run and why.
 
 ## Engineering Conventions
@@ -195,7 +195,7 @@ python tools/devtools.py quit
 ### Which runner to use
 
 - `dotnet test`: pure C# logic tests.
-- `pwsh ./tools/test.ps1`: Godot runtime, GDScript tests, and engine-aware integration tests.
+- `./tools/test.sh`: Godot runtime, GDScript tests, and engine-aware integration tests.
 
 ### Node-derived class caveat
 
@@ -207,23 +207,35 @@ Classes inheriting from Godot `Node` typically throw runtime-level failures (oft
 - Infinite loops without deterministic exit.
 - Async tests requiring runtime but missing runtime requirement markers.
 
+## Asset Generation Pipeline
+
+Specialized agent configurations live in `.github/agents/` and handle 3D asset generation:
+
+- **asset-orchestrator** (`asset-orchestrator.agent.md`): Coordinates the generate → validate → remediate loop, ensuring assets meet quality gates before delivery.
+- **game-asset-agent** (`game-asset-agent.agent.md`): Generates game-ready 3D assets end-to-end through the pipeline: Flux (concept art) → BiRefNet (background removal) → Trellis2 (3D mesh) → CHORD PBR (texturing) → Blender (post-processing).
+- **asset-validator** (`asset-validator.agent.md`): Validates assets for quality, correctness, and game-readiness (geometry, UVs, materials, file size).
+- **modify-game-asset** (`modify-game-asset.agent.md`): Modifies existing GLB files — geometry removal, recoloring, mesh cleanup — via Blender.
+
+Pipeline scripts live in `pipeline/` (stage scripts: concept → mask → 3D → PBR → Blender post-process).
+Generated assets are delivered to `~/assets/final_glb/`.
+
 ## First-Time or Fresh Environment Bootstrap
 
 Run once when environment is new or dependencies changed:
 
-```powershell
+```bash
 dotnet restore
 dotnet build -warnaserror
-pwsh ./tools/godot.ps1 --headless --script res://tools/setup_input_actions_cli.gd
+./tools/godot.sh --headless --script res://tools/setup_input_actions_cli.gd
 dotnet test
-pwsh ./tools/test.ps1
+./tools/test.sh
 ```
 
 ## Execution/Reporting Requirements
 
 - Prefer targeted checks while iterating; run full required checks before final output.
 - For headless Godot lint commands, prefer short timeouts (target 20s when practical).
-- Use complete absolute Windows paths for file operations when a path must be provided explicitly.
+- Use absolute paths for file operations when a path must be provided explicitly.
 - In final response, include:
   - tests created/updated,
   - commands run,
@@ -242,7 +254,3 @@ All items must be true:
 5. UID/GUID validation was run and any rewritten references were fixed.
 6. Gameplay changes had runtime validation with simulated input and screenshot attempt.
 7. Final report includes concrete command outcomes.
-
-## Agent Teams
-
-When initially creating a new game from scratch, use agent teams.
