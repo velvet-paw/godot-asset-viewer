@@ -1,23 +1,16 @@
-# Tea Leaves
+# Godot Asset Viewer
 
-Tea Leaves is the engineering substrate for dog-designed Godot games: non-semantic keyboard streams are interpreted as design input, and this repo provides the runtime tooling and verification rails that turn those streams into working game builds.
-
-[Quasar Saz](https://github.com/cleak/quasar-saz) is one finished game and `tea-leaves` is the reusable technical core behind that workflow.
-
-## Generation Loop
-
-1. Dog keyboard input is treated as intentional design signal, not noise.
-2. An agent translates that signal into concrete Godot changes (code, scenes, resources, controls).
-3. This repository's automation stack validates the result (build/test/lint/runtime checks) before changes are accepted.
+A Godot 4.6 Mono asset viewer with an integrated AI-driven 3D asset generation pipeline. Browse, preview, and inspect game assets directly in the engine, and generate new 3D assets from text prompts using ComfyUI + Trellis2 + CHORD PBR + Blender.
 
 ## Technical Snapshot
 
 - Engine: Godot 4.6 Mono
 - Gameplay language: C# (`net8.0`)
-- Tooling language: GDScript + PowerShell + Python
+- Tooling language: GDScript + Bash + Python
 - Physics: Jolt
-- Renderer: Forward Plus (D3D12 on Windows)
-- Test stack: `dotnet test` + gdUnit4 via `pwsh ./tools/test.ps1`
+- Renderer: Forward Plus (Vulkan on Linux)
+- Test stack: `dotnet test` + gdUnit4 via `./tools/test.sh`
+- AI pipeline: ComfyUI → BiRefNet → Trellis2 → CHORD PBR → Blender
 
 ## Runtime Architecture
 
@@ -25,8 +18,8 @@ Tea Leaves is the engineering substrate for dog-designed Godot games: non-semant
 
 `project.godot` wires two autoloads:
 
-- `WindowSetup` (`game/WindowSetup.cs`): forces startup window placement on monitor index `2`, centers using `ScreenGetUsableRect`, and sets always-on-top. Change this as desired - it was a kludge to make good recordings.
-- `DevTools` (`game/DevTools.cs`): runtime command server used by local automation.
+- `WindowSetup` (`game/WindowSetup.cs`): handles window placement at startup.
+- `DevTools` (`game/DevTools.cs`): runtime command server used by local automation and AI agents.
 
 ### DevTools File Protocol
 
@@ -63,10 +56,12 @@ This complements headless lint by catching runtime-only failures.
 
 ### Godot Launcher Wrapper
 
-`tools/godot.ps1` resolves Godot from:
+`tools/godot.sh` resolves Godot from:
 
-1. `GODOT4_MONO_EXE`
-2. `C:\Projects\Godot\Godot_v4.6-stable_mono_win64\...`
+1. `$GODOT4_MONO_EXE` environment variable
+2. `godot` or `godot4` on PATH
+3. `~/.local/bin/godot`
+4. Flatpak (`org.godotengine.GodotSharp`)
 
 ### Project Lint
 
@@ -84,8 +79,8 @@ This complements headless lint by catching runtime-only failures.
 ### Tests and Test Lint
 
 - `dotnet test`: C# tests
-- `pwsh ./tools/test.ps1`: gdUnit4 runtime tests with timeout handling and normalized exit codes
-- `pwsh ./tools/lint_tests.ps1`: gdUnit conventions (`extends GdUnitTestSuite`, `test_` naming, assertion presence, loop sanity)
+- `./tools/test.sh`: gdUnit4 runtime tests with timeout handling and normalized exit codes
+- `./tools/lint_tests.sh`: gdUnit conventions (`extends GdUnitTestSuite`, `test_` naming, assertion presence, loop sanity)
 
 ### Input Bootstrap
 
@@ -95,19 +90,19 @@ This complements headless lint by catching runtime-only failures.
 
 ## CLI Workflow
 
-```powershell
+```bash
 # Restore/build/test
 dotnet restore
 dotnet build -warnaserror
 dotnet test
-pwsh ./tools/test.ps1
-pwsh ./tools/godot.ps1 --headless --script res://tools/setup_input_actions_cli.gd
+./tools/test.sh
+./tools/godot.sh --headless --script res://tools/setup_input_actions_cli.gd
 
 # Static project lint
-pwsh ./tools/godot.ps1 --headless --script res://tools/lint_project.gd
+./tools/godot.sh --headless --script res://tools/lint_project.gd
 
 # Run game + runtime verification loop
-pwsh ./tools/godot.ps1
+./tools/godot.sh
 python tools/devtools.py ping
 python tools/devtools.py input list
 python tools/devtools.py input sequence test/sequences/example_template.json
@@ -115,24 +110,45 @@ python tools/devtools.py screenshot --filename "verification.png"
 python tools/devtools.py validate-all
 python tools/devtools.py performance
 python tools/devtools.py input clear
+
+# Asset viewer commands
+python tools/devtools.py asset-list --type mesh
+python tools/devtools.py asset-load res://actors/humpty_dumpty/humpty_dumpty_final.glb
+python tools/devtools.py asset-screenshot --filename "asset_check.png"
+
+# Import generated assets from pipeline
+./tools/import-asset.sh humpty_dumpty
 ```
 
 Screenshots are written to:
-`%APPDATA%/Godot/app_userdata/TeaLeaves/screenshots/`
+`~/.local/share/godot/app_userdata/GodotAssetViewer/screenshots/`
 
-## Repository Status
+## Asset Generation Pipeline
 
-This repo currently ships the platform and verification infrastructure, not a full game content stack yet:
+The integrated pipeline generates game-ready 3D assets from text prompts:
 
-- `actors/`, `levels/`, `scripts/`, `ui/`, `data/`, `util/` are scaffolded directories.
-- `test/unit/test_example.gd` and `test/sequences/example_template.json` are starter references.
+1. **Concept art** (ComfyUI/Flux) → 2. **Background removal** (BiRefNet) → 3. **3D generation** (Trellis2) → 4. **PBR maps** (CHORD) → 5. **Post-processing** (Blender: decimation, rigging, LODs, collision)
 
-In short: `tea-leaves` is the repeatable build-and-validate loop that dog-generated game ideas plug into.
+Pipeline scripts are in `pipeline/`. Generated assets land in `~/assets/final_glb/` and can be imported into the Godot project via `./tools/import-asset.sh <asset_name>`.
 
-## Related Projects
+Agent configurations for the pipeline are in `.github/agents/`:
+- `asset-orchestrator` — Coordinates the generate-validate-remediate loop
+- `game-asset-agent` — Runs the full generation pipeline
+- `asset-validator` — Validates asset quality and game-readiness
+- `modify-game-asset` — Modifies existing GLB files
 
-- **[Quasar Saz](https://github.com/cleak/quasar-saz)** - The finished game built on this foundation, designed by a dog and developed by Claude Code ([watch the video](https://youtu.be/8BbPlPou3Bg))
-- **[DogKeyboard](https://github.com/cleak/DogKeyboard)** - All the routing and miscellaneous tasks for reading input from Momo, dispensing treats, and playing chimes for her
+## Asset Viewer
+
+The built-in asset viewer (`ui/asset_viewer/AssetViewer.tscn`) provides:
+- **Visual preview** of all project assets (meshes, textures, audio, scenes)
+- **Orbit camera** for 3D asset inspection
+- **Search and filter** by name or type
+- **DevTools commands** for AI/CLI access (`asset_viewer_list`, `asset_viewer_load`, etc.)
+- **Pipeline import** — pull generated assets directly into the project
+
+## Based On
+
+Originally forked from [cleak/tea-leaves](https://github.com/cleak/tea-leaves), the reusable Godot build-and-validate infrastructure.
 
 ## License
 

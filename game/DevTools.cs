@@ -90,6 +90,14 @@ namespace TeaLeaves.Systems
             };
         }
 
+        /// <summary>
+        /// Register an external command handler with DevTools.
+        /// </summary>
+        public void RegisterHandler(string command, Func<JsonElement, CommandResult> handler)
+        {
+            _handlers[command] = handler;
+        }
+
         public override void _ExitTree()
         {
             // Release all simulated inputs on exit
@@ -850,5 +858,5 @@ namespace TeaLeaves.Systems
         public JsonElement Args { get; set; }
     }
 
-    internal record CommandResult(bool Success, string Message, object? Data = null);
+    public record CommandResult(bool Success, string Message, object? Data = null);
 }

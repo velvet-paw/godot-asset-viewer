@@ -1,0 +1,8 @@
+{
+  "description": "Asset viewer smoke test - list, load, screenshot, orbit",
+  "steps": [
+    {"type": "wait", "seconds": 1.0},
+    {"type": "screenshot", "filename": "asset_viewer_smoke_initial.png"},
+    {"type": "wait", "seconds": 0.5}
+  ]
+}

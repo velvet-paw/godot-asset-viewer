@@ -1,0 +1,76 @@
+[gd_scene load_steps=2 format=3 uid="uid://asset_viewer"]
+
+[ext_resource type="Script" path="res://ui/asset_viewer/AssetViewer.cs" id="1"]
+
+[node name="AssetViewer" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="VBox" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Toolbar" type="HBoxContainer" parent="VBox"]
+layout_mode = 2
+
+[node name="SearchInput" type="LineEdit" parent="VBox/Toolbar"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Search assets..."
+
+[node name="TypeFilter" type="OptionButton" parent="VBox/Toolbar"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+
+[node name="RefreshButton" type="Button" parent="VBox/Toolbar"]
+layout_mode = 2
+text = "Refresh"
+
+[node name="ImportButton" type="Button" parent="VBox/Toolbar"]
+layout_mode = 2
+text = "Import"
+
+[node name="HSplit" type="HSplitContainer" parent="VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+split_offset = -300
+
+[node name="AssetListPanel" type="VBoxContainer" parent="VBox/HSplit"]
+layout_mode = 2
+size_flags_horizontal = 3
+custom_minimum_size = Vector2(250, 0)
+
+[node name="AssetList" type="ItemList" parent="VBox/HSplit/AssetListPanel"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="RightSplit" type="VSplitContainer" parent="VBox/HSplit"]
+layout_mode = 2
+size_flags_horizontal = 3
+split_offset = -100
+
+[node name="ViewportContainer" type="SubViewportContainer" parent="VBox/HSplit/RightSplit"]
+layout_mode = 2
+size_flags_vertical = 3
+stretch = true
+
+[node name="PreviewViewport" type="SubViewport" parent="VBox/HSplit/RightSplit/ViewportContainer"]
+handle_input_locally = true
+size = Vector2i(512, 512)
+render_target_update_mode = 4
+
+[node name="MetaPanel" type="RichTextLabel" parent="VBox/HSplit/RightSplit"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 100)
+bbcode_enabled = true
+text = "[i]Select an asset to view metadata[/i]"
+scroll_following = true

@@ -288,6 +288,121 @@ def cmd_quit(args, project_path: Path):
         print("Quit command sent (no response expected)")
 
 
+# ==================== ASSET VIEWER ====================
+
+
+def cmd_asset_list(args, project_path: Path):
+    """List assets in the project."""
+    cmd_args = {}
+    if args.type:
+        cmd_args["type_filter"] = args.type
+    if args.search:
+        cmd_args["search"] = args.search
+    if args.limit:
+        cmd_args["limit"] = args.limit
+
+    result = send_command(project_path, "asset_viewer_list", cmd_args)
+    if result["success"]:
+        assets = result.get("data", {}).get("assets", [])
+        print(f"Found {len(assets)} asset(s):")
+        for asset in assets:
+            print(f"  [{asset.get('type_label', '?')}] {asset.get('path', '?')}")
+    else:
+        print(f"Failed: {result['message']}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_asset_load(args, project_path: Path):
+    """Load an asset into the viewer."""
+    result = send_command(project_path, "asset_viewer_load", {"path": args.path})
+    if result["success"]:
+        print(f"Loaded: {args.path}")
+    else:
+        print(f"Failed: {result['message']}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_asset_screenshot(args, project_path: Path):
+    """Take a screenshot of the asset viewer."""
+    cmd_args = {}
+    if args.filename:
+        cmd_args["filename"] = args.filename
+
+    result = send_command(project_path, "asset_viewer_screenshot", cmd_args)
+    if result["success"]:
+        print(f"Screenshot saved: {result.get('data', {}).get('path', 'unknown')}")
+    else:
+        print(f"Failed: {result['message']}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_asset_camera(args, project_path: Path):
+    """Control the asset viewer camera."""
+    cmd_args = {"action": args.action}
+    if args.yaw is not None:
+        cmd_args["delta_yaw"] = args.yaw
+    if args.pitch is not None:
+        cmd_args["delta_pitch"] = args.pitch
+    if args.zoom is not None:
+        cmd_args["delta_zoom"] = args.zoom
+    if args.position:
+        parts = [float(v) for v in args.position.split(",")]
+        if len(parts) == 3:
+            cmd_args["position"] = {"x": parts[0], "y": parts[1], "z": parts[2]}
+        else:
+            print("Error: --position must be X,Y,Z (e.g., 0,1,0)", file=sys.stderr)
+            sys.exit(1)
+
+    result = send_command(project_path, "asset_viewer_camera", cmd_args)
+    if result["success"]:
+        print(f"Camera {args.action} applied")
+    else:
+        print(f"Failed: {result['message']}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_asset_audio(args, project_path: Path):
+    """Control audio playback in the asset viewer."""
+    cmd_args = {"action": args.action}
+    if args.position is not None:
+        cmd_args["position_sec"] = args.position
+
+    result = send_command(project_path, "asset_viewer_audio", cmd_args)
+    if result["success"]:
+        print(f"Audio {args.action} applied")
+    else:
+        print(f"Failed: {result['message']}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_asset_meta(args, project_path: Path):
+    """Get metadata for an asset."""
+    result = send_command(project_path, "asset_viewer_get_meta", {"path": args.path})
+    if result["success"]:
+        print(json.dumps(result["data"], indent=2))
+    else:
+        print(f"Failed: {result['message']}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_asset_validate(args, project_path: Path):
+    """Validate an asset."""
+    result = send_command(project_path, "asset_viewer_validate", {"path": args.path})
+    if result["success"]:
+        print(f"[OK] {result['message']}")
+        issues = result.get("data", {}).get("issues", [])
+        for issue in issues:
+            severity = {"error": "ERROR", "warning": "WARN", "info": "INFO"}.get(issue.get("severity", ""), "???")
+            print(f"  [{severity}] {issue.get('message', '')}")
+    else:
+        print(f"[FAIL] {result['message']}")
+        issues = result.get("data", {}).get("issues", [])
+        for issue in issues:
+            severity = {"error": "ERROR", "warning": "WARN", "info": "INFO"}.get(issue.get("severity", ""), "???")
+            print(f"  [{severity}] {issue.get('message', '')}")
+        sys.exit(1)
+
+
 # ==================== INPUT SIMULATION ====================
 
 
@@ -469,6 +584,48 @@ def main():
     p = subparsers.add_parser("quit", help="Quit Godot")
     p.add_argument("--exit-code", type=int, help="Exit code")
     p.set_defaults(func=cmd_quit)
+
+    # asset-list
+    p = subparsers.add_parser("asset-list", help="List assets in the project")
+    p.add_argument("--type", "-t", help="Filter by asset type (texture, mesh, audio, shader, scene)")
+    p.add_argument("--search", "-s", help="Search term to filter by path")
+    p.add_argument("--limit", "-l", type=int, help="Max number of results")
+    p.set_defaults(func=cmd_asset_list)
+
+    # asset-load
+    p = subparsers.add_parser("asset-load", help="Load an asset into the viewer")
+    p.add_argument("path", help="Asset path (res://...)")
+    p.set_defaults(func=cmd_asset_load)
+
+    # asset-screenshot
+    p = subparsers.add_parser("asset-screenshot", help="Screenshot the asset viewer")
+    p.add_argument("--filename", "-f", help="Output filename")
+    p.set_defaults(func=cmd_asset_screenshot)
+
+    # asset-camera
+    p = subparsers.add_parser("asset-camera", help="Control asset viewer camera")
+    p.add_argument("action", help="Camera action (orbit, zoom, reset, set_position)")
+    p.add_argument("--yaw", type=float, help="Yaw delta in degrees")
+    p.add_argument("--pitch", type=float, help="Pitch delta in degrees")
+    p.add_argument("--zoom", type=float, help="Zoom delta")
+    p.add_argument("--position", help="Camera position as X,Y,Z")
+    p.set_defaults(func=cmd_asset_camera)
+
+    # asset-audio
+    p = subparsers.add_parser("asset-audio", help="Control audio playback")
+    p.add_argument("action", help="Audio action (play, pause, stop, seek)")
+    p.add_argument("--position", type=float, help="Seek position in seconds")
+    p.set_defaults(func=cmd_asset_audio)
+
+    # asset-meta
+    p = subparsers.add_parser("asset-meta", help="Get asset metadata")
+    p.add_argument("path", help="Asset path (res://...)")
+    p.set_defaults(func=cmd_asset_meta)
+
+    # asset-validate
+    p = subparsers.add_parser("asset-validate", help="Validate an asset")
+    p.add_argument("path", help="Asset path (res://...)")
+    p.set_defaults(func=cmd_asset_validate)
 
     # input - nested subcommands for input simulation
     input_parser = subparsers.add_parser("input", help="Simulate input actions")
