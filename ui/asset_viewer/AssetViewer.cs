@@ -84,9 +84,9 @@ namespace TeaLeaves.UI
 
             _camera3D = new Camera3D();
             _camera3D.Name = "Camera3D";
+            _previewViewport.AddChild(_camera3D);
             _camera3D.Position = new Vector3(0, 1, 3);
             _camera3D.LookAt(Vector3.Zero, Vector3.Up);
-            _previewViewport.AddChild(_camera3D);
 
             _light = new DirectionalLight3D();
             _light.Name = "Light";
