@@ -2,21 +2,7 @@
 
 ## Project Overview
 
-**GodotAssetViewer** (renamed from TeaLeaves) is a Godot 4.6 Mono project.
-
-- **C#** for all gameplay logic; **GDScript** only for editor tooling
-- **Jolt Physics** engine, **Forward Plus** rendering, **Vulkan** on Linux
-- Integrated AI-driven 3D asset generation pipeline (ComfyUI + Trellis2 + CHORD PBR + Blender)
-
-## First-Time Setup
-
-```bash
-dotnet restore
-dotnet build -warnaserror
-./tools/godot.sh --headless --script res://tools/setup_input_actions_cli.gd
-dotnet test
-./tools/test.sh
-```
+**GodotAssetViewer** is a Godot 4.6 Mono project. C# for all gameplay logic; GDScript only for editor tooling. Jolt physics, Forward Plus rendering, Vulkan on Linux. Integrated AI-driven 3D asset generation pipeline.
 
 ## Core Tenets
 
@@ -36,7 +22,7 @@ dotnet test
 
 ## EventBus Pattern
 
-### When to Use EventBus vs Godot Signals
+EventBus lives in `game/EventBus.cs` as an AutoLoad singleton with typed delegates.
 
 | Scenario | Use | Why |
 |---|---|---|
@@ -47,54 +33,19 @@ dotnet test
 
 ### Implementation
 
-EventBus lives in `game/EventBus.cs` as an AutoLoad singleton with typed delegates:
-
 ```csharp
-// Declare typed delegate + event
+// Declare in game/EventBus.cs
 public delegate void ScoreChangedHandler(int newScore);
 public static event ScoreChangedHandler? ScoreChanged;
-
-// Emit helper
 public static void EmitScoreChanged(int newScore) => ScoreChanged?.Invoke(newScore);
 ```
 
-### Subscribing / Unsubscribing
-
-Always unsubscribe in `_ExitTree()` to prevent memory leaks and stale references:
+Always subscribe in `_Ready()`, unsubscribe in `_ExitTree()` to prevent memory leaks:
 
 ```csharp
-public override void _Ready()
-{
-    EventBus.ScoreChanged += OnScoreChanged;
-}
-
-public override void _ExitTree()
-{
-    EventBus.ScoreChanged -= OnScoreChanged;
-}
-
-private void OnScoreChanged(int newScore)
-{
-    // handle event
-}
+public override void _Ready() { EventBus.ScoreChanged += OnScoreChanged; }
+public override void _ExitTree() { EventBus.ScoreChanged -= OnScoreChanged; }
 ```
-
-### Emitting Events
-
-```csharp
-EventBus.EmitScoreChanged(42);
-```
-
-### Adding New Events
-
-1. Add a delegate type and `static event` field in `game/EventBus.cs`
-2. Add a static `Emit*` helper method
-3. Subscribe in `_Ready()`, unsubscribe in `_ExitTree()`
-
-### Testing EventBus
-
-- Subscribe in test setup, assert expected values in the handler
-- Unsubscribe in teardown to isolate tests
 
 ## C# Conventions
 
@@ -117,9 +68,9 @@ public partial class EnemyData : Resource
 }
 ```
 
-### Hand-Written Scene NodePath Patterns
+### Hand-Written Scene Rules
 
-Use `[Export] NodePath` and resolve in `_Ready()`:
+For hand-written `.tscn` files, use `[Export] NodePath` fields resolved with `GetNode<T>()` in `_Ready()`:
 
 ```csharp
 [Export] public NodePath SpritePath { get; set; } = null!;
@@ -132,35 +83,7 @@ public override void _Ready()
 }
 ```
 
-## Key Commands
-
-All commands are bash (not PowerShell).
-
-```bash
-# Build & Test
-dotnet restore && dotnet build -warnaserror
-dotnet test
-./tools/test.sh
-./tools/godot.sh --headless --script res://tools/lint_project.gd
-
-# Linting
-./tools/godot.sh --headless --script res://tools/lint_shaders.gd
-gdlint path/to/file.gd
-./tools/lint_tests.sh
-
-# DevTools runtime
-python tools/devtools.py ping
-python tools/devtools.py screenshot --filename "verification.png"
-python tools/devtools.py validate-all
-python tools/devtools.py performance
-python tools/devtools.py input tap jump
-python tools/devtools.py input clear
-
-# Asset viewer
-python tools/devtools.py asset-list --type texture
-python tools/devtools.py asset-load res://path/to/asset.glb
-python tools/devtools.py asset-screenshot --filename check.png
-```
+Prefer editor-generated scenes; hand-write only when necessary.
 
 ## Project Structure
 
@@ -181,16 +104,6 @@ res://
   plans/           # Design documents
 ```
 
-## Validation Pipeline
-
-Run before every commit:
-
-1. `dotnet build -warnaserror`
-2. `dotnet test`
-3. `./tools/test.sh`
-4. `./tools/godot.sh --headless --script res://tools/lint_project.gd`
-5. `gdlint` for any modified GDScript files
-
 ## Testing Strategy
 
 | Runner | Scope | Notes |
@@ -200,67 +113,14 @@ Run before every commit:
 
 - **Node-derived classes crash `dotnet test`** — keep core logic in pure C# helper classes
 - Always unsubscribe EventBus in `_ExitTree()` to prevent test pollution
-- Avoid async anti-patterns in tests
-
-## DevTools
-
-File-based protocol under `user://`:
-
-| File | Purpose |
-|---|---|
-| `devtools_commands.json` | Command inbox (write commands here) |
-| `devtools_results.json` | Result outbox (read responses here) |
-
-Supported commands: `screenshot`, `validate`, `scene-tree`, `input` (tap/clear simulation), `performance`, `get-state`, `set-state`.
-
-## Asset Generation Pipeline
-
-### Tools
-
-| Stage | Tool | Purpose |
-|---|---|---|
-| Concept | ComfyUI (Flux) | Text-to-image generation |
-| Mask | BiRefNet | Background removal |
-| 3D | Trellis2 (primary) | Image-to-3D textured mesh |
-| PBR | CHORD | PBR material maps (used only when Trellis2 textures are stripped or absent) |
-| Post-process | Blender | Mesh cleanup, decimation, rigging, LODs, export |
-
-### Pipeline Flow
-
-```
-concept → mask → Trellis2 3D (baked textures) → Blender post-process
-```
-
-- **Output**: `~/assets/final_glb/{asset_name}_final.glb`
-- **Import**: `tools/import-asset.sh` copies assets into `res://`
-- **Agent configs**: `.github/agents/` contains orchestrator, validator, generator, and modifier agent definitions
-
-### Creature-Specific Guidance
-
-- **Concept art must have color variation** — uniform white/grey surfaces expose Trellis2 groove artifacts. Use distinct markings (e.g., grey body, lighter belly, darker back).
-- **Quadruped prompts**: include `three-quarter front view, all four legs visible and separated, fluffy tail, bold clean cel-shaded forms`.
-- **Vertex targets for Trellis2 baked textures**: 150K for creatures, 100K for props, 50K for weapons. This applies universally — decimation below 50K destroys baked UV mapping regardless of asset type.
-- **Trellis2 default params**: keep at 12 sampling steps, 7.5 guidance. Higher values cause CUDA OOM on RTX 3090.
-
-### Stage 6 Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ASSET_TYPE` | `creature` | Controls vertex target, scale, rigging |
-| `TARGET_VERTS` | (per type) | Override vertex target |
-| `TARGET_HEIGHT` | (per type) | Override height in meters |
-| `GENERATE_LODS` | `0` | Set `1` to produce LOD1 + LOD2 |
-| `GENERATE_COLLISION` | `0` | Set `1` to produce convex hull collision |
-| `FORCE_PBR` | `0` | Set `1` to strip Trellis2 textures and apply fresh UV + CHORD PBR |
-| `UV_METHOD` | `smart` | `smart` for Smart UV Project, `camera` for concept-art-aligned projection |
-| `PBR_CHANNELS` | `all` | Comma-separated list: `albedo,normal,roughness,metallic,height` |
-| `SKIP_RIGGING` | `0` | Set `1` to skip armature/weighting |
-| `SKIP_GROUND_REMOVAL` | `0` | Set `1` to keep ground plane |
+- Avoid async anti-patterns in tests (e.g. `ToSignal` after `AddChild` can hang)
 
 ## Important Notes
 
 - **Physics Layers**: interactables → layer 2, ground → layer 1
 - **Renderer**: Vulkan (Forward Plus) on Linux
 - **Godot Version**: 4.6+ Mono
-- **Always commit `.uid` files**
-- **UID integrity**: run `lint_project.gd` after scene/resource edits
+- **Always commit `.uid` files** — run `lint_project.gd` after scene/resource edits
+- For authoritative build/test/lint commands, see `AGENTS.md`
+- For 3D asset pipeline details, use the `asset-pipeline` skill
+- For runtime verification workflow, use the `devtools-runtime` skill
