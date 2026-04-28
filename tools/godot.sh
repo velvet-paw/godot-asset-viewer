@@ -14,6 +14,12 @@
 
 set -euo pipefail
 
+# Ensure .NET SDK is discoverable by Godot Mono
+if [[ -z "${DOTNET_ROOT:-}" ]] && [[ -d "$HOME/.dotnet" ]]; then
+    export DOTNET_ROOT="$HOME/.dotnet"
+    export PATH="$DOTNET_ROOT:$PATH"
+fi
+
 resolve_godot_path() {
     if [[ -n "${GODOT4_MONO_EXE:-}" ]] && [[ -x "$GODOT4_MONO_EXE" ]]; then
         echo "$GODOT4_MONO_EXE"
