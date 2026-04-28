@@ -14,6 +14,7 @@ namespace TeaLeaves.UI
         private LineEdit _searchInput = null!;
         private OptionButton _typeFilter = null!;
         private Button _refreshButton = null!;
+        private Button _reloadButton = null!;
         private Button _importButton = null!;
         private ItemList _assetList = null!;
         private SubViewport _previewViewport = null!;
@@ -69,6 +70,7 @@ namespace TeaLeaves.UI
             _searchInput = GetNode<LineEdit>("VBox/Toolbar/SearchInput");
             _typeFilter = GetNode<OptionButton>("VBox/Toolbar/TypeFilter");
             _refreshButton = GetNode<Button>("VBox/Toolbar/RefreshButton");
+            _reloadButton = GetNode<Button>("VBox/Toolbar/ReloadButton");
             _importButton = GetNode<Button>("VBox/Toolbar/ImportButton");
             _assetList = GetNode<ItemList>("VBox/HSplit/AssetListPanel/AssetList");
             _viewportContainer = GetNode<SubViewportContainer>("VBox/HSplit/RightSplit/ViewportContainer");
@@ -101,6 +103,7 @@ namespace TeaLeaves.UI
             _searchInput.TextChanged += OnSearchChanged;
             _typeFilter.ItemSelected += OnTypeFilterChanged;
             _refreshButton.Pressed += OnRefreshPressed;
+            _reloadButton.Pressed += OnReloadPressed;
             _importButton.Pressed += OnImportPressed;
             _assetList.ItemSelected += OnAssetSelected;
 
@@ -342,6 +345,11 @@ namespace TeaLeaves.UI
             ScanAssets();
         }
 
+        private void OnReloadPressed()
+        {
+            ReloadAsset();
+        }
+
         private void OnImportPressed()
         {
             ImportFromPipeline();
@@ -416,6 +424,45 @@ namespace TeaLeaves.UI
             }
 
             UpdateMetaPanel(entry, resource);
+        }
+
+        /// <summary>
+        /// Force-reload the current asset, bypassing Godot's in-memory resource cache.
+        /// Uses ResourceLoader with CacheMode.Replace to re-read from the import cache on disk.
+        /// If the source file changed, run `godot --headless --import` first to update the import cache.
+        /// </summary>
+        public void ReloadAsset()
+        {
+            if (_currentAsset == null)
+            {
+                GD.PushError("AssetViewer: No asset loaded to reload");
+                return;
+            }
+            var path = _currentAsset.Path;
+
+            ClearPreview();
+
+            var resource = ResourceLoader.Load(path, "", ResourceLoader.CacheMode.Replace);
+            if (resource == null)
+            {
+                GD.PushError($"AssetViewer: Failed to reload resource at {path}");
+                _metaPanel.Text = $"[color=red]Failed to reload: {path}[/color]\n" +
+                                  "[i]If the source file changed, restart the viewer to reimport.[/i]";
+                return;
+            }
+
+            if (resource is Texture2D tex) ShowTexturePreview(tex);
+            else if (resource is PackedScene scene) ShowScenePreview(scene);
+            else if (resource is Mesh mesh) ShowMeshPreview(mesh);
+            else if (resource is AudioStream audio) ShowAudioPreview(audio, path);
+            else if (resource is Material mat) ShowMaterialPreview(mat);
+            else
+            {
+                _metaPanel.Text = $"[b]{path}[/b]\nResource type: {resource.GetClass()}\n[i]Reloaded[/i]";
+                return;
+            }
+
+            UpdateMetaPanel(_currentAsset, resource);
         }
 
         private void ClearPreview()
@@ -750,6 +797,7 @@ namespace TeaLeaves.UI
 
             devtools.RegisterHandler("asset_viewer_list", CmdList);
             devtools.RegisterHandler("asset_viewer_load", CmdLoad);
+            devtools.RegisterHandler("asset_viewer_reload", CmdReload);
             devtools.RegisterHandler("asset_viewer_screenshot", CmdScreenshot);
             devtools.RegisterHandler("asset_viewer_camera", CmdCamera);
             devtools.RegisterHandler("asset_viewer_audio", CmdAudio);
@@ -797,11 +845,27 @@ namespace TeaLeaves.UI
             try
             {
                 LoadAsset(path);
-                return new CommandResult(true, $"Loaded asset: {path}", new { path, type = _currentAsset?.Type });
+                return new CommandResult(true, $"Loaded: {path}", new { path, type = _currentAsset?.Type });
             }
             catch (Exception e)
             {
                 return new CommandResult(false, $"Failed to load: {e.Message}");
+            }
+        }
+
+        private CommandResult CmdReload(JsonElement args)
+        {
+            if (_currentAsset == null)
+                return new CommandResult(false, "No asset currently loaded");
+
+            try
+            {
+                ReloadAsset();
+                return new CommandResult(true, $"Reloaded: {_currentAsset.Path}", new { path = _currentAsset.Path, type = _currentAsset.Type });
+            }
+            catch (Exception e)
+            {
+                return new CommandResult(false, $"Failed to reload: {e.Message}");
             }
         }
 

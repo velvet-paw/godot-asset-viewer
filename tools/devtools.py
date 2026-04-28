@@ -322,6 +322,16 @@ def cmd_asset_load(args, project_path: Path):
         sys.exit(1)
 
 
+def cmd_asset_reload(args, project_path: Path):
+    """Force-reload the current asset from disk (bypasses Godot import cache)."""
+    result = send_command(project_path, "asset_viewer_reload", {})
+    if result["success"]:
+        print(f"Reloaded: {result.get('data', {}).get('path', 'current asset')}")
+    else:
+        print(f"Failed: {result['message']}", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_asset_screenshot(args, project_path: Path):
     """Take a screenshot of the asset viewer."""
     cmd_args = {}
@@ -619,6 +629,10 @@ def main():
     p = subparsers.add_parser("asset-load", help="Load an asset into the viewer")
     p.add_argument("path", help="Asset path (res://...)")
     p.set_defaults(func=cmd_asset_load)
+
+    # asset-reload
+    p = subparsers.add_parser("asset-reload", help="Force-reload current asset from disk (bypasses cache)")
+    p.set_defaults(func=cmd_asset_reload)
 
     # asset-screenshot
     p = subparsers.add_parser("asset-screenshot", help="Screenshot the asset viewer")

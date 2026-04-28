@@ -35,6 +35,11 @@ custom_minimum_size = Vector2(120, 0)
 layout_mode = 2
 text = "Refresh"
 
+[node name="ReloadButton" type="Button" parent="VBox/Toolbar"]
+layout_mode = 2
+text = "⟳ Reload"
+tooltip_text = "Force-reload current asset from disk (bypasses cache)"
+
 [node name="ImportButton" type="Button" parent="VBox/Toolbar"]
 layout_mode = 2
 text = "Import"
