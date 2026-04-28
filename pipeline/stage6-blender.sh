@@ -875,6 +875,81 @@ PYEOF
     echo "  ✅ PBR maps applied"
 fi
 
+# --- Step 4b: Strip metallic/roughness and set doubleSided ---
+#
+# Trellis2 bakes an MR texture that causes shiny artifacts in Godot.
+# Remove it at the Blender level BEFORE export so GLBs are always clean.
+# Also disable backface culling so GLB exports with doubleSided=true.
+
+echo "── Step 4b: Strip metallic/roughness, set doubleSided ──"
+
+STRIP_MR_CODE=$(cat <<'PYEOF'
+import bpy
+
+stripped = 0
+for mat in bpy.data.materials:
+    if not mat.use_nodes:
+        continue
+    tree = mat.node_tree
+    bsdf = None
+    for node in tree.nodes:
+        if node.type == 'BSDF_PRINCIPLED':
+            bsdf = node
+            break
+    if not bsdf:
+        continue
+
+    # Remove MR texture if connected
+    mr_input = bsdf.inputs.get('Metallic')
+    if mr_input and mr_input.is_linked:
+        for link in list(mr_input.links):
+            tex_node = link.from_node
+            tree.links.remove(link)
+            # Also disconnect roughness from same texture
+            rough_input = bsdf.inputs.get('Roughness')
+            if rough_input and rough_input.is_linked:
+                for rlink in list(rough_input.links):
+                    if rlink.from_node == tex_node:
+                        tree.links.remove(rlink)
+            # Remove the texture node and its image
+            if tex_node.type == 'TEX_IMAGE' and tex_node.image:
+                img = tex_node.image
+                tree.nodes.remove(tex_node)
+                bpy.data.images.remove(img)
+            else:
+                tree.nodes.remove(tex_node)
+            stripped += 1
+
+    # Also check if roughness has its own separate texture
+    rough_input = bsdf.inputs.get('Roughness')
+    if rough_input and rough_input.is_linked:
+        for link in list(rough_input.links):
+            tex_node = link.from_node
+            tree.links.remove(link)
+            if tex_node.type == 'TEX_IMAGE' and tex_node.image:
+                img = tex_node.image
+                tree.nodes.remove(tex_node)
+                bpy.data.images.remove(img)
+            else:
+                tree.nodes.remove(tex_node)
+            stripped += 1
+
+    # Set constant values
+    bsdf.inputs['Metallic'].default_value = 0.0
+    bsdf.inputs['Roughness'].default_value = 0.8
+
+    # Disable backface culling = doubleSided in glTF export
+    mat.use_backface_culling = False
+
+print(f"STRIP_MR_RESULT=stripped:{stripped}")
+PYEOF
+)
+
+RESP=$(run_blender_code "$STRIP_MR_CODE")
+if ! check_mcp_error "$RESP" "Strip MR"; then exit 1; fi
+STRIPPED_COUNT=$(echo "$RESP" | { grep -oP 'stripped:\K[0-9]+' || echo "0"; })
+echo "  ✅ Metallic/roughness removed (${STRIPPED_COUNT} textures), doubleSided enabled"
+
 # --- Step 5: Auto-rigging for animation (Godot-compatible) ---
 #
 # Creates a skeleton armature for characters/creatures with Godot-compatible
