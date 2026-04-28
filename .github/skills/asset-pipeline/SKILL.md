@@ -20,6 +20,22 @@ allowed-tools: shell
 
 Trellis2 baked textures are preserved by default. CHORD PBR is only applied when textures are stripped (`FORCE_PBR=1`) or absent.
 
+### Stage 3 — Trellis2 Workflow Parameters
+
+Workflow file: `comfyui/flows/trellis2-img2mesh.json`
+
+**Critical remesh parameters** (ExportGLB node):
+```json
+"remesh": true,
+"remesh_band": 2.0,
+"remesh_project": 0.9
+```
+
+- `remesh_project=0.9` — Projects remeshed vertices to original surface (Microsoft's default). **Must be ≥0.9** to avoid triangle-soup topology.
+- `remesh_band=2.0` — Controls bandwidth of dual-contouring remesh. Higher = smoother.
+- These parameters were exposed via a patch to `Trellis2ExportGLB` in the ComfyUI container.
+- The node source: `/app/ComfyUI/custom_nodes/ComfyUI-TRELLIS2/nodes/nodes_unwrap.py`
+
 ## Stage 6 Environment Variables
 
 | Variable | Default | Description |
@@ -231,15 +247,44 @@ These operations are **safe** and used by optimize-for-web.sh:
 
 **Input must be Stage 6 output** (already decimated by Blender collapse decimation). The optimize-for-web.sh script only resizes textures and cleans up — it does NOT simplify meshes. Mesh decimation is Blender's job (Stage 6) because gltf-transform simplify destroys vertex normals and UV quality on Trellis2 triangle-soup meshes.
 
-### Trellis2 Triangle Soup — Known Limitations
+### Trellis2 Triangle Soup — Root Cause & Fix
 
-Trellis2 outputs **triangle soup**: each triangle has its own 3 unique vertices, not shared with neighbors. This causes:
+Trellis2's CuMesh remesher outputs **triangle soup** by default because the `Trellis2ExportGLB` node
+hardcoded `remesh_project=0` (no surface projection) and `remesh_band=1` (minimum bandwidth).
 
-1. **Polygon gaps after decimation** — Tiny sub-pixel gaps exist between all triangles. After decimation to <60K verts, triangles become larger and gaps become visible when zooming in. **Mitigation:** `doubleSided=true` (applied automatically by optimize-for-web.sh) renders back faces to visually fill gaps.
+**Golden Path (both layers):**
 
-2. **Merge-by-distance limitations** — Pre-merge at 0.0005 catches exact duplicates but doesn't fix topology. Higher thresholds (0.002+) weld the mesh but cause collapse decimation to produce 3× more faces than triangle soup (shared verts prevent face collapse). Post-merge (after decimation) at 0.003+ destroys geometry.
+1. **Source fix — CuMesh remesh parameters** (workflow JSON):
+   ```json
+   "remesh_band": 2.0,
+   "remesh_project": 0.9
+   ```
+   Setting `remesh_project=0.9` (Microsoft's recommended default) projects remeshed vertices back to
+   the original surface, creating shared vertices with proper topology. Tested results:
+   - Near-duplicate vertex pairs: **637K → 244K** (62% reduction)
+   - Boundary edges: **402K → 230K** (43% reduction)
+   - Vertex/face ratio: **1.04 (soup) → 0.78 (shared)**
+   - **No visible polygon gaps** after decimation to 30K verts
 
-3. **File size inflation from merging** — Merged vertices with shared positions but different normals/UVs get duplicated in glTF export, making files larger than triangle soup equivalents despite fewer Blender vertices.
+2. **Defense-in-depth — `doubleSided=true`** (optimize-for-web.sh):
+   Applied automatically during texture optimization. Renders back faces to fill any
+   remaining micro-gaps at extreme zoom. Zero file-size cost.
+
+**Always use both layers.** The remesh fix produces dramatically better meshes, and
+doubleSided catches edge cases at extreme zoom levels.
+
+### Legacy Triangle Soup Limitations (remesh_project=0)
+
+These issues are **resolved** by the golden path above but documented for reference:
+
+1. **Polygon gaps after decimation** — Each triangle had its own 3 unique vertices.
+   After decimation to <60K verts, gaps became visible when zooming in.
+
+2. **Merge-by-distance limitations** — Pre-merge at 0.002+ caused collapse decimation
+   to produce 3× more faces. Post-merge at 0.003+ destroyed geometry.
+
+3. **File size inflation** — Merged vertices with different normals/UVs got duplicated
+   in glTF export, making files larger despite fewer Blender vertices.
 
 ## Reference Assets
 

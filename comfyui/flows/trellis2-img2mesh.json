@@ -61,6 +61,8 @@
       "decimation_target": 500000,
       "texture_size": 2048,
       "remesh": true,
+      "remesh_band": 2.0,
+      "remesh_project": 0.9,
       "filename_prefix": "trellis2"
     }
   }
