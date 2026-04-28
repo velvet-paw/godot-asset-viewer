@@ -48,7 +48,7 @@ while [[ $# -gt 0 ]]; do
             echo "Environment variables:"
             echo "  QUALITY=web|desktop|source    Quality preset (default: web)"
             echo "  TEXTURE_SIZE=512              Override texture resize dimension"
-            echo "  STRIP_METALROUGH=1            Strip metallicRoughness texture"
+            echo "  STRIP_METALROUGH=0            Keep metallicRoughness texture (default: strip)"
             echo "  VERBOSE=1                     Show gltf-transform output"
             exit 0
             ;;
@@ -155,12 +155,12 @@ STEP2_SIZE=$(du -h "$NEXT" | cut -f1)
 echo "done ($STEP2_SIZE)"
 CURRENT="$NEXT"
 
-# Step 3 (optional): Strip metallicRoughness if requested
-# Only strip if STRIP_METALROUGH=1 — preserving MR texture is preferred when
-# mesh was decimated with Blender collapse (UVs intact).
+# Step 3: Strip metallicRoughness (default ON for web/desktop)
+# Decimation distorts UVs enough that MR texture causes shiny brown artifacts.
+# Set STRIP_METALROUGH=0 to keep the MR texture (only for undecimated meshes).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STRIP_SCRIPT="$SCRIPT_DIR/strip-metalrough.mjs"
-if [[ "${STRIP_METALROUGH:-0}" == "1" && -f "$STRIP_SCRIPT" ]]; then
+if [[ "${STRIP_METALROUGH:-1}" == "1" && -f "$STRIP_SCRIPT" ]]; then
     echo -n "  [3/3] Strip metallicRoughness... "
     NEXT="$TMPDIR/step3_strip.glb"
     node "$STRIP_SCRIPT" "$CURRENT" "$NEXT" > "$REDIR" 2>&1
@@ -168,7 +168,7 @@ if [[ "${STRIP_METALROUGH:-0}" == "1" && -f "$STRIP_SCRIPT" ]]; then
     echo "done ($STEP3_SIZE)"
     CURRENT="$NEXT"
 else
-    echo "  [3/3] Strip metallicRoughness... SKIP (not requested)"
+    echo "  [3/3] Strip metallicRoughness... SKIP (STRIP_METALROUGH=0)"
 fi
 
 # Copy to output

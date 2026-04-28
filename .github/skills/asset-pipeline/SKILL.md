@@ -200,7 +200,7 @@ QUALITY=desktop ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_final.
 |----------|---------|-------------|
 | `QUALITY` | `web` | **REQUIRED.** `web` (512px textures), `desktop` (1024px textures), `source` (no-op) |
 | `TEXTURE_SIZE` | (per preset) | Override texture resize dimension |
-| `STRIP_METALROUGH` | `0` | Set to `1` to strip metallicRoughness texture (saves ~1 MB) |
+| `STRIP_METALROUGH` | `1` | Set to `0` to keep metallicRoughness texture (only for undecimated meshes) |
 
 ### Quality Presets
 
@@ -210,7 +210,7 @@ QUALITY=desktop ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_final.
 | `desktop` | 1024×1024 PNG | As-is (decimated by Blender) | <5 MB | Desktop games |
 | `source` | Original | None | No limit | Archival, highest quality |
 
-Stripping metallicRoughness (`STRIP_METALROUGH=1`) is optional. With Blender collapse decimation, UVs are preserved and metallicRoughness renders correctly.
+MetallicRoughness is **stripped by default** (metallic=0, roughness=0.9). Even with Blender collapse decimation, the MR texture on decimated meshes causes shiny brown artifacts in Godot. Set `STRIP_METALROUGH=0` only for undecimated full-res meshes.
 
 ### Godot 4.6 Compatibility (CRITICAL)
 
