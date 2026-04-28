@@ -429,21 +429,22 @@ fi
 
 # --- Step 2: Decimate for game-ready poly count ---
 #
-# Vertex targets vary by asset type (Godot 4 PC budget):
-#   humanoid: 15000 verts (~30K tris) — needs enough geometry for skeletal deformation
-#   creature: 12000 verts (~24K tris) — animated, needs smooth deformation
-#   prop:      3000 verts (~6K tris)  — static or simple animation
-#   weapon:    2000 verts (~4K tris)  — static, held by character
+# Vertex targets tuned for Trellis2 baked UV preservation (Godot 4 PC budget).
+# Decimating below 50K destroys Trellis2 UV fidelity regardless of asset type.
+#   creature: 150000 verts — high-detail baked textures, needs UV headroom
+#   humanoid:  15000 verts — skeletal deformation with CHORD PBR (not baked UVs)
+#   prop:     100000 verts — static/simple, baked textures
+#   weapon:    50000 verts — static, minimum for UV fidelity
 # Override with TARGET_VERTS env var.
 
 ASSET_TYPE="${ASSET_TYPE:-creature}"
 
 case "${ASSET_TYPE}" in
     humanoid) DEFAULT_TARGET=15000 ;;
-    creature) DEFAULT_TARGET=12000 ;;
-    prop)     DEFAULT_TARGET=3000 ;;
-    weapon)   DEFAULT_TARGET=2000 ;;
-    *)        DEFAULT_TARGET=12000 ;;
+    creature) DEFAULT_TARGET=150000 ;;
+    prop)     DEFAULT_TARGET=100000 ;;
+    weapon)   DEFAULT_TARGET=50000 ;;
+    *)        DEFAULT_TARGET=150000 ;;
 esac
 
 DECIMATE_TARGET="${TARGET_VERTS:-$DEFAULT_TARGET}"
@@ -1425,11 +1426,11 @@ if [[ "${GENERATE_LODS:-0}" == "1" ]]; then
     echo "── Step 7: LOD chain generation ──"
 
     case "${ASSET_TYPE}" in
-        humanoid) LOD1_TARGET=5000; LOD2_TARGET=1500 ;;
-        creature) LOD1_TARGET=4000; LOD2_TARGET=1200 ;;
-        prop)     LOD1_TARGET=1000; LOD2_TARGET=400 ;;
-        weapon)   LOD1_TARGET=800;  LOD2_TARGET=300 ;;
-        *)        LOD1_TARGET=4000; LOD2_TARGET=1200 ;;
+        humanoid) LOD1_TARGET=7500; LOD2_TARGET=3750 ;;
+        creature) LOD1_TARGET=75000; LOD2_TARGET=37500 ;;
+        prop)     LOD1_TARGET=50000; LOD2_TARGET=25000 ;;
+        weapon)   LOD1_TARGET=25000; LOD2_TARGET=12500 ;;
+        *)        LOD1_TARGET=75000; LOD2_TARGET=37500 ;;
     esac
 
     LOD_CODE=$(cat <<PYEOF
