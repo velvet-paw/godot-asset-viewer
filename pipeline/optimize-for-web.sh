@@ -137,7 +137,7 @@ REDIR="/dev/null"
 CURRENT="$INPUT"
 
 # Step 1: Resize textures
-echo -n "  [1/3] Resize textures to ${TEXTURE_SIZE}px... "
+echo -n "  [1/4] Resize textures to ${TEXTURE_SIZE}px... "
 NEXT="$TMPDIR/step1_resize.glb"
 $GLTF_CMD resize --width "$TEXTURE_SIZE" --height "$TEXTURE_SIZE" "$CURRENT" "$NEXT" > "$REDIR" 2>&1
 STEP1_SIZE=$(du -h "$NEXT" | cut -f1)
@@ -145,7 +145,7 @@ echo "done ($STEP1_SIZE)"
 CURRENT="$NEXT"
 
 # Step 2: Dedup + Prune
-echo -n "  [2/3] Dedup + Prune... "
+echo -n "  [2/4] Dedup + Prune... "
 NEXT="$TMPDIR/step2_dedup.glb"
 $GLTF_CMD dedup "$CURRENT" "$NEXT" > "$REDIR" 2>&1
 CURRENT="$NEXT"
@@ -161,14 +161,30 @@ CURRENT="$NEXT"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STRIP_SCRIPT="$SCRIPT_DIR/strip-metalrough.mjs"
 if [[ "${STRIP_METALROUGH:-1}" == "1" && -f "$STRIP_SCRIPT" ]]; then
-    echo -n "  [3/3] Strip metallicRoughness... "
+    echo -n "  [3/4] Strip metallicRoughness + doubleSided... "
     NEXT="$TMPDIR/step3_strip.glb"
     node "$STRIP_SCRIPT" "$CURRENT" "$NEXT" > "$REDIR" 2>&1
     STEP3_SIZE=$(du -h "$NEXT" | cut -f1)
     echo "done ($STEP3_SIZE)"
     CURRENT="$NEXT"
 else
-    echo "  [3/3] Strip metallicRoughness... SKIP (STRIP_METALROUGH=0)"
+    echo "  [3/4] Strip metallicRoughness... SKIP (STRIP_METALROUGH=0)"
+fi
+
+# Step 4: Set doubleSided on all materials
+# Trellis2 triangle-soup meshes have gaps between disconnected triangles after
+# decimation. doubleSided renders back faces, visually filling the gaps at zero
+# file-size cost. Step 3 already sets this when MR stripping is on; this step
+# catches the STRIP_METALROUGH=0 case.
+DOUBLESIDED_SCRIPT="$SCRIPT_DIR/set-doublesided.mjs"
+if [[ "${STRIP_METALROUGH:-1}" != "1" && -f "$DOUBLESIDED_SCRIPT" ]]; then
+    echo -n "  [4/4] Set doubleSided... "
+    NEXT="$TMPDIR/step4_doublesided.glb"
+    node "$DOUBLESIDED_SCRIPT" "$CURRENT" "$NEXT" > "$REDIR" 2>&1
+    echo "done"
+    CURRENT="$NEXT"
+else
+    echo "  [4/4] Set doubleSided... (included in step 3)"
 fi
 
 # Copy to output

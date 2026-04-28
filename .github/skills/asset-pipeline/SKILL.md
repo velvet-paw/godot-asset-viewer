@@ -212,6 +212,8 @@ QUALITY=desktop ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_final.
 
 MetallicRoughness is **stripped by default** (metallic=0, roughness=0.9). Even with Blender collapse decimation, the MR texture on decimated meshes causes shiny brown artifacts in Godot. Set `STRIP_METALROUGH=0` only for undecimated full-res meshes.
 
+All materials are set to **doubleSided=true** automatically. Trellis2 outputs triangle-soup meshes where triangles share no vertices — after decimation, visible gaps appear between triangles. doubleSided renders back faces, filling these gaps at zero file-size cost.
+
 ### Godot 4.6 Compatibility (CRITICAL)
 
 These operations **break** Godot 4.6 rendering — never use them:
@@ -223,10 +225,21 @@ These operations **break** Godot 4.6 rendering — never use them:
 These operations are **safe** and used by optimize-for-web.sh:
 - ✅ `gltf-transform resize` — PNG texture resizing
 - ✅ `gltf-transform dedup` / `prune` — cleanup
+- ✅ `doubleSided=true` — fills polygon gaps from decimated triangle soup (set via strip-metalrough.mjs or set-doublesided.mjs)
 
 ### Input Selection
 
 **Input must be Stage 6 output** (already decimated by Blender collapse decimation). The optimize-for-web.sh script only resizes textures and cleans up — it does NOT simplify meshes. Mesh decimation is Blender's job (Stage 6) because gltf-transform simplify destroys vertex normals and UV quality on Trellis2 triangle-soup meshes.
+
+### Trellis2 Triangle Soup — Known Limitations
+
+Trellis2 outputs **triangle soup**: each triangle has its own 3 unique vertices, not shared with neighbors. This causes:
+
+1. **Polygon gaps after decimation** — Tiny sub-pixel gaps exist between all triangles. After decimation to <60K verts, triangles become larger and gaps become visible when zooming in. **Mitigation:** `doubleSided=true` (applied automatically by optimize-for-web.sh) renders back faces to visually fill gaps.
+
+2. **Merge-by-distance limitations** — Pre-merge at 0.0005 catches exact duplicates but doesn't fix topology. Higher thresholds (0.002+) weld the mesh but cause collapse decimation to produce 3× more faces than triangle soup (shared verts prevent face collapse). Post-merge (after decimation) at 0.003+ destroys geometry.
+
+3. **File size inflation from merging** — Merged vertices with shared positions but different normals/UVs get duplicated in glTF export, making files larger than triangle soup equivalents despite fewer Blender vertices.
 
 ## Reference Assets
 

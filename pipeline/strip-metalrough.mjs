@@ -119,6 +119,9 @@ for (const material of root.listMaterials()) {
     }
     material.setMetallicFactor(metallic);
     material.setRoughnessFactor(roughness);
+    // Trellis2 triangle-soup meshes have gaps between triangles after decimation.
+    // doubleSided renders back faces, visually filling gaps at zero file-size cost.
+    material.setDoubleSided(true);
 }
 
 await io.write(outputPath, document);
