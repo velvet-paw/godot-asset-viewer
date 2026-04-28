@@ -1,0 +1,67 @@
+# Blender MCP — Operate-only Podman Compose
+#
+# Pulls pre-built Blender and MCP images from registry. Does NOT build from source.
+# For building the images, see the blender-container repository.
+#
+# Services:
+#   blender      – Blender with blender-mcp addon socket server on port 9876.
+#                  Default: headless. Set BLENDER_MODE=gui for KasmVNC on 3000/3001.
+#
+#   blender-mcp  – MCP server exposing Blender tools for LLMs on port 8000.
+#
+# Usage:
+#   podman compose -f infra/blender/docker-compose.yml up -d
+#   BLENDER_MODE=gui podman compose -f infra/blender/docker-compose.yml up -d
+#   podman compose -f infra/blender/docker-compose.yml down
+#
+# Prerequisites:
+#   - NVIDIA CDI configured (infra/compose-blender.sh handles this)
+
+services:
+  blender:
+    image: gaap/blender:${GAAP_VERSION:-latest}
+    container_name: gaap-blender
+    hostname: gaap-blender
+    shm_size: "1g"
+    security_opt:
+      - seccomp=unconfined
+    devices:
+      - nvidia.com/gpu=${BLENDER_GPU:-1}
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - BLENDER_MODE=${BLENDER_MODE:-headless}
+      - PIXELFLUX_WAYLAND=true
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - BLENDER_MCP_AUTOSTART=1
+      - ATTACHED_DEVICES_PERMS=/dev/dri
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+    volumes:
+      - ~/assets:/assets:rw
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9876"]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 20
+
+  blender-mcp:
+    image: gaap/blender-mcp:${GAAP_VERSION:-latest}
+    container_name: gaap-blender-mcp
+    hostname: gaap-blender-mcp
+    environment:
+      - BLENDER_HOST=gaap-blender
+      - BLENDER_PORT=9876
+      - MCP_TRANSPORT=streamable-http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      - DISABLE_TELEMETRY=true
+    ports:
+      - "8000:8000"
+    depends_on:
+      blender:
+        condition: service_healthy
