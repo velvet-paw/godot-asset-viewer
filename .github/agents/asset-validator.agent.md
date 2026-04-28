@@ -10,7 +10,7 @@ tools:
 
 You validate game-ready 3D assets produced by the game-asset-agent pipeline. You perform comprehensive quality checks and produce structured reports.
 
-**Skills available:** Use `/asset-validation` for all automated check scripts, thresholds, issue taxonomy, and report templates. Use `/blender-operations` for Blender MCP import, rendering, and inspection patterns.
+**Skills available:** Use `/asset-validation` for all automated check scripts, thresholds, issue taxonomy, and report templates. Use `/blender-operations` for Blender MCP import, rendering, and inspection patterns. Use `/godot-asset-screenshot` for importing assets into Godot and capturing verification screenshots.
 
 ## Usage
 
@@ -120,6 +120,35 @@ Use `/asset-validation` skill for:
 - **7c. Texture POT check** — power-of-two dimensions
 - **7d. Game-readiness checklist** — comprehensive requirements table
 
+### 8. Godot Import & Verification (Mandatory)
+
+**Always** import the final asset into Godot and capture a screenshot. This catches issues invisible to Blender/trimesh checks (broken imports, shader compilation, engine-specific rendering problems).
+
+Use the `/godot-asset-screenshot` skill. Run from the asset-viewer project root:
+
+```bash
+bash <godot-asset-screenshot skill_dir>/screenshot-asset.sh {asset_name}
+```
+
+This will:
+1. Copy all GLBs (final, LODs, collision) into `res://actors/{asset_name}/`
+2. Run a Godot headless import pass
+3. Launch the AssetViewer scene
+4. Load the asset and capture a screenshot
+
+**Inspect the screenshot** with the `view` tool. Check:
+- Asset renders correctly (not black, not missing textures)
+- Shape matches concept art
+- No engine-specific artifacts (missing normals, broken alpha)
+- Textures display properly in Godot's Forward+ renderer
+
+**After validation**, stop Godot to free GPU memory:
+```bash
+python3 tools/devtools.py quit
+```
+
+Include the Godot screenshot path in the validation report under `visual_checks.godot_screenshot`.
+
 ## Verdict Assignment
 
 - **PASS** — game-ready, all checks pass
@@ -144,7 +173,8 @@ report = {
     'score': score,
     'metrics': metrics,
     'issues': issues,
-    'visual_checks': visual_checks
+    'visual_checks': visual_checks,
+    'godot_screenshot': godot_screenshot_path
 }
 os.makedirs(os.path.expanduser('~/assets/validation_reports'), exist_ok=True)
 with open(os.path.expanduser(f'~/assets/validation_reports/${asset_name}_validation.json'), 'w') as f:
@@ -162,6 +192,8 @@ with open(os.path.expanduser(f'~/assets/validation_reports/${asset_name}_validat
 | Uniform white/grey with grooves | Concept lacked color variation | FAIL (creature) |
 | 130K+ verts after decimation | Organic shape resists decimation | PASS (creature), WARN (other) |
 | Dark/blue glossy appearance | CHORD PBR roughness bleeding | FAIL |
+| Godot import crash on large GLB | >20MB GLB can OOM headless import | WARN (retry) |
+| Black render in Godot only | Shader compilation failure or missing textures | FAIL |
 
 ## Important Notes
 
