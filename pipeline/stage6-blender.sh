@@ -656,15 +656,98 @@ PYEOF
 RESP=$(run_blender_code "$TEXTURE_CHECK_CODE")
 HAS_TEXTURES=$(echo "$RESP" | { grep -oiP 'HAS_TEXTURES=\K[a-zA-Z]+' || true; } | head -1 | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
 
-if [[ "$HAS_TEXTURES" == "true" ]]; then
+FORCE_PBR="${FORCE_PBR:-0}"
+if [[ "$HAS_TEXTURES" == "true" && "$FORCE_PBR" != "1" ]]; then
     echo "── Step 3: Smart UV Project ──"
     echo "  ⏭ Skipped (Trellis2 baked UVs preserved)"
     echo "── Step 4: Apply PBR maps ──"
     echo "  ⏭ Skipped (Trellis2 baked textures preserved)"
 else
-    echo "── Step 3: Smart UV Project ──"
+    if [[ "$HAS_TEXTURES" == "true" && "$FORCE_PBR" == "1" ]]; then
+        echo "  ⚠ FORCE_PBR=1: stripping Trellis2 textures, applying fresh UV + CHORD PBR"
+        STRIP_TEX_CODE=$(cat <<'PYEOF'
+import bpy
+for obj in bpy.context.scene.objects:
+    if obj.type == 'MESH':
+        for mat_slot in obj.material_slots:
+            mat = mat_slot.material
+            if mat and mat.use_nodes:
+                for node in list(mat.node_tree.nodes):
+                    if node.type == 'TEX_IMAGE':
+                        mat.node_tree.nodes.remove(node)
+print("Stripped baked textures from all meshes")
+PYEOF
+        )
+        RESP=$(run_blender_code "$STRIP_TEX_CODE")
+        echo "  ✅ Baked textures stripped"
+    fi
+    UV_METHOD="${UV_METHOD:-smart}"
+    echo "── Step 3: UV Project (method: ${UV_METHOD}) ──"
 
-    UV_CODE=$(cat <<'PYEOF'
+    if [[ "$UV_METHOD" == "camera" ]]; then
+        # Camera-based UV projection via math (works headless).
+        # Projects UVs from a virtual camera matching the concept art's
+        # three-quarter front view angle.
+        UV_CODE=$(cat <<'PYEOF'
+import bpy, math
+from mathutils import Vector, Matrix
+
+mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
+if not mesh_objects:
+    print("No mesh objects found")
+else:
+    # Compute mesh bounds
+    all_verts = []
+    for obj in mesh_objects:
+        for v in obj.data.vertices:
+            all_verts.append(obj.matrix_world @ v.co)
+
+    min_co = Vector((min(v[i] for v in all_verts) for i in range(3)))
+    max_co = Vector((max(v[i] for v in all_verts) for i in range(3)))
+    center = (min_co + max_co) / 2
+    size = max_co - min_co
+    max_dim = max(size)
+
+    # Camera setup: three-quarter front-left, slight elevation
+    azimuth = math.radians(30)
+    elevation = math.radians(15)
+    dist = max_dim * 5
+
+    cam_pos = Vector((
+        center.x + dist * math.sin(azimuth) * math.cos(elevation),
+        center.y - dist * math.cos(azimuth) * math.cos(elevation),
+        center.z + dist * math.sin(elevation)
+    ))
+
+    # Build view matrix (orthographic projection)
+    forward = (center - cam_pos).normalized()
+    right = forward.cross(Vector((0, 0, 1))).normalized()
+    up = right.cross(forward).normalized()
+
+    for obj in mesh_objects:
+        mesh = obj.data
+        if not mesh.uv_layers:
+            mesh.uv_layers.new(name="CameraProjection")
+        uv_layer = mesh.uv_layers.active
+
+        for poly in mesh.polygons:
+            for loop_idx in poly.loop_indices:
+                vert = obj.matrix_world @ mesh.vertices[mesh.loops[loop_idx].vertex_index].co
+                # Project vertex onto camera plane
+                rel = vert - center
+                u = rel.dot(right) / max_dim + 0.5
+                v = rel.dot(up) / max_dim + 0.5
+                # Clamp to 0-1
+                u = max(0.0, min(1.0, u))
+                v = max(0.0, min(1.0, v))
+                uv_layer.data[loop_idx].uv = (u, v)
+
+        print(f"  Camera-projected UV: {obj.name}")
+    print(f"Camera-projected {len(mesh_objects)} mesh(es)")
+PYEOF
+        )
+    else
+        UV_CODE=$(cat <<'PYEOF'
 import bpy
 
 mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
@@ -682,13 +765,16 @@ for obj in mesh_objects:
 
 print(f"UV unwrapped {len(mesh_objects)} mesh(es)")
 PYEOF
-    )
+        )
+    fi
 
     RESP=$(run_blender_code "$UV_CODE")
     if ! check_mcp_error "$RESP" "UV Unwrap"; then exit 1; fi
-    echo "  ✅ UV unwrapped"
+    echo "  ✅ UV projected"
 
     echo "── Step 4: Apply PBR maps ──"
+
+    PBR_CHANNELS="${PBR_CHANNELS:-all}"  # Comma-separated list: albedo,normal,roughness,metallic,height or "all"
 
     PBR_CODE=$(cat <<PYEOF
 import bpy
@@ -696,6 +782,7 @@ import os
 
 pbr_dir = "${PBR_DIR}"
 asset_name = "${ASSET_NAME}"
+pbr_channels_filter = "${PBR_CHANNELS}"
 
 mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
 
@@ -706,6 +793,12 @@ channels = {
     'metallic': ['metalness', 'metallic', 'metal'],
     'height': ['height', 'displacement', 'bump'],
 }
+
+# Filter channels if PBR_CHANNELS is specified
+if pbr_channels_filter != "all":
+    allowed = [c.strip() for c in pbr_channels_filter.split(',')]
+    channels = {k: v for k, v in channels.items() if k in allowed}
+    print(f"Filtered PBR channels to: {list(channels.keys())}")
 
 pbr_files = {}
 available = os.listdir(pbr_dir) if os.path.isdir(pbr_dir) else []

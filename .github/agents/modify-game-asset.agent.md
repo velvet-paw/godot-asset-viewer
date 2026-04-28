@@ -328,6 +328,7 @@ bpy.ops.object.mode_set(mode="OBJECT")
 8. **Saturation filter is critical** — prevents grey/white areas from being hue-shifted
 9. **Export as GLB** — always use `export_format="GLB"` for game-ready assets
 10. **Clean up after deletion** — `delete_loose` + `normals_make_consistent` after removing geometry
+11. **Trellis2 groove artifacts** — baked textures may have subtle groove/ridge patterns. For creatures with color variation these blend in; for uniform-colored areas, consider gentle texture blurring or hand-painting over affected regions.
 
 ## Error Handling
 

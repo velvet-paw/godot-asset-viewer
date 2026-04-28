@@ -73,11 +73,15 @@ if z_range < 0.1:
 
 **Thresholds:**
 
-| Metric | Pass | Warn | Fail |
-|--------|------|------|------|
-| Vertices | < 80K | 80K–150K | > 150K |
-| Z-depth | > 0.1 | 0.05–0.1 | < 0.05 |
-| File size | 5–20MB | 20–30MB | > 30MB |
+| Metric | Pass | Warn | Fail | Notes |
+|--------|------|------|------|-------|
+| Vertices (humanoid) | < 20K | 20K–30K | > 30K | |
+| Vertices (creature) | < 200K | 200K–300K | > 300K | 150K target for Trellis2 UV fidelity |
+| Vertices (prop) | < 150K | 150K–200K | > 200K | 100K target for Trellis2 UV fidelity |
+| Vertices (weapon) | < 80K | 80K–100K | > 100K | 50K target for Trellis2 UV fidelity |
+| Z-depth | > 0.1 | 0.05–0.1 | < 0.05 | |
+| File size (Trellis2 textured) | 5–20MB | 20–30MB | > 30MB | Higher counts = bigger files |
+| File size (other) | 1–10MB | 10–20MB | > 20MB | |
 
 ### 3. Material & Texture Validation
 
@@ -322,16 +326,16 @@ for img in bpy.data.images:
 | LOD chain (if generated) | LOD1 < 6K, LOD2 < 2K | trimesh vertex counts |
 | Collision mesh (if generated) | Convex hull < 500v | trimesh vertex count |
 
-**Vertex budget by ASSET_TYPE (Godot PC targets):**
+**Vertex budget by ASSET_TYPE (Godot PC targets — Trellis2 baked textures):**
 
 | ASSET_TYPE | Target Verts | Max Tris | Use Case |
 |------------|-------------|----------|----------|
 | humanoid | 15,000 | ~30K | Player characters, major NPCs |
-| creature | 12,000 | ~24K | Enemies, pets, animals |
-| prop | 3,000 | ~6K | Furniture, barrels, crates |
-| weapon | 2,000 | ~4K | Swords, shields, staffs |
+| creature | 150,000 | ~300K | Wolves, owls, dragons — high count preserves Trellis2 UV fidelity |
+| prop | 100,000 | ~200K | Pots, barrels, crates — Trellis2 textures need 100K+ |
+| weapon | 50,000 | ~100K | Swords, shields — simpler geometry can go lower |
 
-> **Known limitation:** Trellis2 triangle-soup meshes hit a collapse-decimate floor at ~8% of original vertex count (~26K for typical 326K mesh). LOD0 may exceed the target budget. LOD1/LOD2 use voxel remesh to bypass this floor.
+> **Universal rule for Trellis2 baked textures:** ALL asset types need 50K+ vertices minimum to preserve UV mapping. Decimating below 50K produces shredded/metallic texture artifacts regardless of asset type. The low targets (3K/2K) in earlier docs only apply to meshes without baked textures.
 
 ## Verdict
 
@@ -486,10 +490,14 @@ print(json.dumps(report, indent=2))
 |---------|-------|----------|
 | Near-black 3D render | Smart UV Project destroyed Trellis2's baked UVs | FAIL |
 | Z-depth < 0.05 | Front-view concept produced bas-relief | WARN |
-| 130K+ vertices after decimation | Organic shape resists fixed-ratio decimation | WARN |
+| Groove/ridge artifacts on surface | Trellis2 baked texture artifacts — less visible with color variation | WARN (creature) |
+| Uniform white/grey with visible grooves | Concept art lacked color variation — Trellis2 artifacts exposed | FAIL (creature) |
+| 130K+ vertices after decimation | Organic shape resists fixed-ratio decimation | PASS (creature), WARN (other) |
 | Missing textures on material | GLTF import lost texture references | FAIL |
 | RGBA mask smaller than concept subject | Enhanced mask threshold too high | WARN |
 | Textures present but colors wrong | UV misalignment from Smart UV Project | FAIL |
+| Dark/blue glossy appearance | CHORD PBR roughness map background bleeding through | FAIL |
+| Thin spike or degenerate geometry | Hunyuan3D failure on organic creatures | FAIL |
 
 ## Important Notes
 
@@ -498,3 +506,6 @@ print(json.dumps(report, indent=2))
 - PBR maps in `~/assets/pbr_maps/` are generated but may NOT be applied to the final GLB if Trellis2 textures are present
 - The `to_geometry()` method is needed for trimesh Scene objects (Trellis2 GLBs load as Scene, not Trimesh)
 - ConnectionResetError during Trellis2 is transient — retry before marking as failure
+- **Creature-specific:** 100K–150K vertices is the expected range for creatures — this preserves Trellis2 UV fidelity. Do NOT flag as over-budget.
+- **Creature-specific:** Trellis2 groove artifacts are a known limitation. If concept art has good color variation, grooves blend in and should be accepted as PASS.
+- **Trellis2 params:** Default values (12 steps, 7.5 guidance) are optimal. Increasing them causes CUDA OOM on RTX 3090.

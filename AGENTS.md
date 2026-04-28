@@ -211,12 +211,12 @@ Classes inheriting from Godot `Node` typically throw runtime-level failures (oft
 
 Specialized agent configurations live in `.github/agents/` and handle 3D asset generation:
 
-- **asset-orchestrator** (`asset-orchestrator.agent.md`): Coordinates the generate → validate → remediate loop, ensuring assets meet quality gates before delivery.
-- **game-asset-agent** (`game-asset-agent.agent.md`): Generates game-ready 3D assets end-to-end through the pipeline: Flux (concept art) → BiRefNet (background removal) → Trellis2 (3D mesh) → CHORD PBR (texturing) → Blender (post-processing).
-- **asset-validator** (`asset-validator.agent.md`): Validates assets for quality, correctness, and game-readiness (geometry, UVs, materials, file size).
+- **asset-orchestrator** (`asset-orchestrator.agent.md`): Coordinates the generate → validate → remediate loop, ensuring assets meet quality gates before delivery. Includes creature-specific escalation strategies and color-variation requirements.
+- **game-asset-agent** (`game-asset-agent.agent.md`): Generates game-ready 3D assets end-to-end through the pipeline: Flux (concept art) → BiRefNet (background removal) → Trellis2 (textured 3D mesh) → Blender (post-processing). Trellis2 baked textures are preserved by default; CHORD PBR is only applied when textures are absent or explicitly stripped via `FORCE_PBR=1`.
+- **asset-validator** (`asset-validator.agent.md`): Validates assets for quality, correctness, and game-readiness (geometry, UVs, materials, file size). Includes creature-specific quality checks for color variation and UV fidelity.
 - **modify-game-asset** (`modify-game-asset.agent.md`): Modifies existing GLB files — geometry removal, recoloring, mesh cleanup — via Blender.
 
-Pipeline scripts live in `pipeline/` (stage scripts: concept → mask → 3D → PBR → Blender post-process).
+Pipeline scripts live in `pipeline/` (stage scripts: concept → mask → 3D → Blender post-process).
 Generated assets are delivered to `~/assets/final_glb/`.
 
 ## First-Time or Fresh Environment Bootstrap

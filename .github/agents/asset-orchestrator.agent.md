@@ -83,13 +83,23 @@ Asset type: {ASSET_TYPE} (humanoid|creature|prop|weapon)
 Prompt requirements: Include these keywords in the concept art prompt:
 - "game asset, flat lighting, no shadows, neutral grey background"
 - For characters/organic: add "3D rendered, volumetric, full body, neutral A-pose or T-pose, arms slightly away from torso, legs separated"
+- For creatures/quadrupeds: add "three-quarter front view, all four legs visible and separated, bold clean cel-shaded forms, color variation in fur/skin (NOT uniform white)"
 - For humanoids intended to animate: add "character model sheet" or "turnaround", and avoid capes/cloaks or any silhouette that fuses limbs into a wall-like shape
 - For props/weapons: add "centered, single object, orthographic"
 
-Run the full pipeline: Stage 1 (concept) → Stage 2 (mask) → Stage 3 (Trellis2 3D) → Stage 4-5 (CHORD PBR) → Stage 6 (Blender post-processing).
+IMPORTANT for creatures: The concept art MUST have visible color variation (e.g., darker back, lighter belly, distinct markings). Uniform white or grey surfaces expose Trellis2 baked-texture groove artifacts.
+
+Run the full pipeline: Stage 1 (concept) → Stage 2 (mask) → Stage 3 (Trellis2 3D) → Stage 6 (Blender post-processing).
+Trellis2 baked textures are preserved by default — do NOT run CHORD PBR (Stages 4-5) unless textures are explicitly stripped.
 
 For Stage 6, set environment variables:
-  ASSET_TYPE={ASSET_TYPE} GENERATE_LODS=1 GENERATE_COLLISION=1 ./pipeline/stage6-blender.sh {raw_glb} {asset_name} http://localhost:8000
+  ASSET_TYPE={ASSET_TYPE} TARGET_VERTS={see table} GENERATE_LODS=1 GENERATE_COLLISION=1 ./pipeline/stage6-blender.sh {raw_glb} {asset_name} http://localhost:8000
+
+Vertex targets by type (with Trellis2 baked textures):
+  - creature: TARGET_VERTS=150000 (preserve Trellis2 UV fidelity)
+  - humanoid: TARGET_VERTS=15000
+  - prop: TARGET_VERTS=100000 (Trellis2 baked textures need high counts)
+  - weapon: TARGET_VERTS=50000 (Trellis2 baked textures need high counts)
 
 The final output should be at: ~/assets/final_glb/{asset_name}_final.glb
 Additional outputs: {asset_name}_lod1.glb, {asset_name}_lod2.glb, {asset_name}-col.glb
@@ -138,30 +148,35 @@ Choose remediation based on the `recommended_action` field in validation issues:
 issues[].recommended_action →
 │
 ├─ "regenerate_concept"
-│   └─ Bas-relief, slab/sheet mesh, or mask issues
+│   └─ Bas-relief, slab/sheet mesh, mask issues, or uniform coloring on creature
 │   └─ Action: Re-run full pipeline (Stages 1–6) with REFINED prompt
 │   └─ Prompt refinement: add depth cues, force neutral pose, separate limbs, remove cape/cloak
+│   └─ For creatures: ALWAYS add explicit color variation (darker back, lighter belly, distinct markings)
 │   └─ This is the most expensive remediation — use only when concept is fundamentally flawed
 │
 ├─ "regenerate_3d"
 │   └─ Shape doesn't match concept but concept art is good
 │   └─ Action: Re-run Stages 3–6 only (reuse existing concept)
+│   └─ Use Trellis2 (primary). Hunyuan3D is experimental and unreliable for organic creatures.
 │   └─ Command: ./pipeline/stage3-3d.sh {concept_file} http://localhost:8188 {asset_name}
-│            then: ./pipeline/stage6-blender.sh {raw_glb} {asset_name} http://localhost:8000
+│            then: ASSET_TYPE={type} TARGET_VERTS={target} ./pipeline/stage6-blender.sh {raw_glb} {asset_name} http://localhost:8000
 │
 ├─ "redo_stage6"
 │   └─ Missing textures, dark render, UV issues, missing armature, or wrapping failure on otherwise good geometry
 │   └─ Action: Re-run Stage 6 only (reuse raw GLB)
 │   └─ First verify raw GLB still has valid textures (trimesh check)
 │   └─ If raw solid render is good but final solid rest render is shredded, treat it as Stage 6 mesh damage (usually overly aggressive decimation), not an upstream concept failure
+│   └─ For creatures: use TARGET_VERTS=150000 to preserve Trellis2 UV fidelity
 │   └─ For armature issues: ensure ASSET_TYPE is set correctly
-│   └─ Command: ASSET_TYPE={type} ./pipeline/stage6-blender.sh {raw_glb} {asset_name} http://localhost:8000
+│   └─ Advanced options: FORCE_PBR=1 (strip baked textures, apply CHORD PBR), UV_METHOD=camera (concept-art-aligned UVs), PBR_CHANNELS=albedo,roughness (limit PBR channels)
+│   └─ Command: ASSET_TYPE={type} TARGET_VERTS={target} ./pipeline/stage6-blender.sh {raw_glb} {asset_name} http://localhost:8000
 │
 ├─ "re_decimate"
 │   └─ Vertex count or file size too high
 │   └─ Action: Call modify-game-asset to re-decimate with lower target
-│   └─ Invoke modify-game-asset: "Decimate {asset_name}_final.glb to under 80K vertices.
-│      Current vertex count is {N}. Use a decimate ratio of {5000/N}."
+│   └─ WARNING for creatures: decimation below 50K destroys Trellis2 baked texture UVs — prefer 100K+ minimum
+│   └─ Invoke modify-game-asset: "Decimate {asset_name}_final.glb to under {target} vertices.
+│      Current vertex count is {N}. Use a decimate ratio of {target/N}."
 │
 ├─ "redo_stage6_with_lods"
 │   └─ Missing LODs or LOD vertex counts over budget
@@ -182,6 +197,8 @@ issues[].recommended_action →
 
 When `regenerate_concept` is needed, choose a DIFFERENT prompt variation each attempt:
 
+##### Humanoid Strategies
+
 | Attempt | Strategy | Added Keywords |
 |---------|----------|---------------|
 | 2 | Neutral riggable pose | `"3D rendered, character model sheet, neutral A-pose, arms away from torso, legs separated, no cape"` |
@@ -189,7 +206,46 @@ When `regenerate_concept` is needed, choose a DIFFERENT prompt variation each at
 | 4 | Front + depth cues | `"front view, volumetric, sculpted armor, separated limbs, strong body volume"` |
 | 5 | Maximum readability | `"game-ready humanoid, full body, clean silhouette, animation-ready, no occluding cloth, bold forms"` |
 
+##### Creature/Quadruped Strategies
+
+| Attempt | Strategy | Added Keywords |
+|---------|----------|---------------|
+| 2 | Color variation emphasis | `"natural coloring with darker back and lighter belly, distinct markings, cel-shaded, Genshin Impact style"` |
+| 3 | Simpler forms | `"bold clean forms, smooth fur, strong silhouette, all four legs clearly separated"` |
+| 4 | Different angle | `"side profile view, stylized proportions, game character, visible color gradients across body"` |
+| 5 | Maximum readability | `"game-ready creature model, clean silhouette, bright color palette, bold markings, 3D render"` |
+
 **Critical:** Never use the exact same prompt twice. Always vary at least the style/viewpoint keywords.
+**Critical for creatures:** Every prompt MUST request color variation. Uniform white/grey produces visible Trellis2 groove artifacts.
+
+#### Proven Reference Prompts (first-attempt successes)
+
+Use these as starting templates — they produced production-ready assets on their first pipeline run:
+
+**Wolf (creature, quadruped):**
+```
+stylized grey wolf, natural grey fur with dark grey back and light grey belly, amber eyes, Genshin Impact style, 3D rendered, volumetric, three-quarter front view, all four legs visible and separated, fluffy tail, bold clean cel-shaded forms, game asset, flat lighting, no shadows, neutral grey background
+```
+
+**Owl (creature, bird):**
+```
+stylized owl, Genshin Impact style, 3D rendered, volumetric, three-quarter front view, perched upright with wings folded against body, sharp talons gripping a branch, tawny brown feathers with warm amber chest, cream-white facial disc, bright golden-yellow eyes with black pupils, dark brown wingtips, small ear tufts, round head, bold clean cel-shaded forms, game asset, flat lighting, no shadows, neutral grey background
+```
+
+**Clay Pot (prop):**
+```
+stylized hand-painted clay pot, round terracotta vessel with wide belly and narrow neck, painted cobalt blue and white geometric patterns around the body, warm orange-brown clay base color, visible brush stroke texture, small decorative handles on each side, centered, single object, orthographic view, game asset, flat lighting, no shadows, neutral grey background
+```
+
+#### Reference Screenshot Gallery
+
+These assets passed quality validation and are imported into the Godot asset viewer:
+
+| Asset | Type | Verts | File Size | GLB Path | Screenshot |
+|-------|------|-------|-----------|----------|------------|
+| Grey Wolf | creature | 150K | 24MB | `res://actors/wolf/wolf_final.glb` | `~/assets/final_glb/wolf_screenshot.png` |
+| Barn Owl | creature | 150K | 23MB | `res://actors/barn_owl/barn_owl_final.glb` | `~/assets/final_glb/barn_owl_screenshot.png` |
+| Clay Pot | prop | 100K | 15MB | `res://actors/clay_pot/clay_pot_final.glb` | `~/assets/final_glb/clay_pot_screenshot.png` |
 
 ### Phase 5: Re-Validate and Loop
 
@@ -237,11 +293,12 @@ cp ~/assets/final_glb/{asset_name}_final.glb ~/assets/final_glb/{asset_name}_bes
 
 | WARN Issue | Acceptable? | Why |
 |-----------|-------------|-----|
-| `high_vertex_count` (80K–150K) | ⚠️ Try once to fix | One re-decimate attempt, then accept |
+| `high_vertex_count` (80K–200K) | ⚠️ Depends on type | Creatures at 100K–150K is expected (preserves Trellis2 UV fidelity). Humanoids over 30K should re-decimate. |
 | `low_z_depth` (0.05–0.1) | ❌ Not acceptable | Borderline bas-relief — regenerate concept |
-| `oversized_file` (20–30MB) | ⚠️ Try once to fix | One re-decimate, then accept |
+| `oversized_file` (20–30MB) | ⚠️ Try once to fix | One re-decimate for non-creatures; for creatures, 20–25MB with baked textures is expected |
 | `low_texture_res` | ✅ Acceptable | Can't fix without regenerating — accept |
 | `mask_too_thin` | ❌ Not acceptable | Regenerate concept with different framing |
+| `uniform_coloring` | ❌ Not acceptable for creatures | Regenerate concept with explicit color variation — uniform surfaces expose groove artifacts |
 
 ## Infrastructure Retries (Separate Budget)
 

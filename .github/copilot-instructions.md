@@ -221,19 +221,41 @@ Supported commands: `screenshot`, `validate`, `scene-tree`, `input` (tap/clear s
 |---|---|---|
 | Concept | ComfyUI (Flux) | Text-to-image generation |
 | Mask | BiRefNet | Background removal |
-| 3D | Trellis2 | Image-to-3D mesh |
-| PBR | CHORD | PBR material map generation |
-| Post-process | Blender | Mesh cleanup, export |
+| 3D | Trellis2 (primary) | Image-to-3D textured mesh |
+| PBR | CHORD | PBR material maps (used only when Trellis2 textures are stripped or absent) |
+| Post-process | Blender | Mesh cleanup, decimation, rigging, LODs, export |
 
 ### Pipeline Flow
 
 ```
-concept → mask → 3D → PBR → Blender post-process
+concept → mask → Trellis2 3D (baked textures) → Blender post-process
 ```
 
 - **Output**: `~/assets/final_glb/{asset_name}_final.glb`
 - **Import**: `tools/import-asset.sh` copies assets into `res://`
 - **Agent configs**: `.github/agents/` contains orchestrator, validator, generator, and modifier agent definitions
+
+### Creature-Specific Guidance
+
+- **Concept art must have color variation** — uniform white/grey surfaces expose Trellis2 groove artifacts. Use distinct markings (e.g., grey body, lighter belly, darker back).
+- **Quadruped prompts**: include `three-quarter front view, all four legs visible and separated, fluffy tail, bold clean cel-shaded forms`.
+- **Vertex targets for Trellis2 baked textures**: 150K for creatures, 100K for props, 50K for weapons. This applies universally — decimation below 50K destroys baked UV mapping regardless of asset type.
+- **Trellis2 default params**: keep at 12 sampling steps, 7.5 guidance. Higher values cause CUDA OOM on RTX 3090.
+
+### Stage 6 Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ASSET_TYPE` | `creature` | Controls vertex target, scale, rigging |
+| `TARGET_VERTS` | (per type) | Override vertex target |
+| `TARGET_HEIGHT` | (per type) | Override height in meters |
+| `GENERATE_LODS` | `0` | Set `1` to produce LOD1 + LOD2 |
+| `GENERATE_COLLISION` | `0` | Set `1` to produce convex hull collision |
+| `FORCE_PBR` | `0` | Set `1` to strip Trellis2 textures and apply fresh UV + CHORD PBR |
+| `UV_METHOD` | `smart` | `smart` for Smart UV Project, `camera` for concept-art-aligned projection |
+| `PBR_CHANNELS` | `all` | Comma-separated list: `albedo,normal,roughness,metallic,height` |
+| `SKIP_RIGGING` | `0` | Set `1` to skip armature/weighting |
+| `SKIP_GROUND_REMOVAL` | `0` | Set `1` to keep ground plane |
 
 ## Important Notes
 

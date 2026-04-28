@@ -57,9 +57,11 @@ Assets are optimized for **Godot 4** (GLB import):
 | ASSET_TYPE | Target Verts | Target Height | Auto-Rig | Example Assets |
 |------------|-------------|---------------|----------|----------------|
 | `humanoid` | 15,000 | 1.75m | Yes (21-bone biped) | Warriors, wizards, NPCs |
-| `creature` | 12,000 | 1.0m | Yes (creature) | Cats, dragons, spiders |
-| `prop` | 3,000 | 0.8m | No | Barrels, crates, furniture |
-| `weapon` | 2,000 | 1.0m | No | Swords, shields, staffs |
+| `creature` | 150,000 | 1.0m | Yes (creature) | Wolves, cats, dragons |
+| `prop` | 100,000 | 0.8m | No | Pots, barrels, crates (with Trellis2 baked textures) |
+| `weapon` | 50,000 | 1.0m | No | Swords, shields, staffs (with Trellis2 baked textures) |
+
+> **Note on vertex targets with Trellis2 baked textures:** ALL asset types need high vertex counts (100K+) to preserve Trellis2's baked UV mapping. Decimating below 50K destroys UV fidelity on any Trellis2-textured mesh. The low targets (3K/2K) only apply to meshes without baked textures (e.g., untextured meshes with CHORD PBR applied via `FORCE_PBR=1`).
 
 **Environment variables for Stage 6:**
 
@@ -70,6 +72,9 @@ Assets are optimized for **Godot 4** (GLB import):
 | `TARGET_HEIGHT` | (per type) | Override height in meters |
 | `GENERATE_LODS` | `0` | Set `1` to produce LOD1 + LOD2 |
 | `GENERATE_COLLISION` | `0` | Set `1` to produce convex hull collision |
+| `FORCE_PBR` | `0` | Set `1` to strip Trellis2 baked textures and apply fresh UV + CHORD PBR |
+| `UV_METHOD` | `smart` | UV unwrap method: `smart` (Smart UV Project) or `camera` (concept-art-aligned projection) |
+| `PBR_CHANNELS` | `all` | Comma-separated PBR channels: `albedo,normal,roughness,metallic,height` |
 | `SKIP_RIGGING` | `0` | Set `1` to skip armature/weighting |
 | `SKIP_GROUND_REMOVAL` | `0` | Set `1` to keep ground plane |
 
@@ -77,7 +82,7 @@ Set variables when running Stage 6:
 
 ```bash
 ASSET_TYPE=humanoid GENERATE_LODS=1 GENERATE_COLLISION=1 ./pipeline/stage6-blender.sh warrior_00001_.glb dark_knight http://localhost:8000
-ASSET_TYPE=creature ./pipeline/stage6-blender.sh cat_00001_.glb cheshire_cat http://localhost:8000
+ASSET_TYPE=creature TARGET_VERTS=150000 GENERATE_LODS=1 ./pipeline/stage6-blender.sh wolf_00001_.glb grey_wolf http://localhost:8000
 ASSET_TYPE=weapon ./pipeline/stage6-blender.sh sword_00001_.glb spirit_sword http://localhost:8000
 ```
 
@@ -375,8 +380,8 @@ Pre-built API-format workflows at `~/comfyui/flows/`:
   concepts/     # Stage 1 — concept_NNNNN_.png
   masked/       # Stage 2 — masked_NNNNN_.png; Stage 3 — enhanced_mask_NNNNN_.png
   raw_3d/       # Stage 3 — {asset}_NNNNN_.glb (textured, ~28MB, ~400K verts)
-  pbr_maps/     # Stage 4-5 — {asset}_{channel}_NNNNN_.png
-  final_glb/    # Stage 6 — {asset}_final.glb (decimated, ~12MB)
+  pbr_maps/     # Stage 4-5 — {asset}_{channel}_NNNNN_.png (only used when FORCE_PBR=1 or untextured mesh)
+  final_glb/    # Stage 6 — {asset}_final.glb (creatures: ~24MB at 150K; props: ~15MB at 100K; humanoids: ~12MB at 15K)
 ```
 
 ## Prompting Guidelines
@@ -385,19 +390,34 @@ Pre-built API-format workflows at `~/comfyui/flows/`:
 |-----------|----------------|-------|
 | Weapons/props | `centered, single object, orthographic, flat lighting` | Best results — natural depth from physical shape |
 | Characters | `front view, 3D rendered, volumetric, full body, neutral A-pose, arms slightly away from torso, legs separated` | **Must include depth cues and limb separation** — fused silhouettes and capes/cloaks produce slab meshes that cannot be rigged |
+| Creatures/Quadrupeds | `three-quarter front view, all four legs visible and separated, bold clean cel-shaded forms, natural coloring with visible markings` | **Must include color variation** — uniform white/grey exposes Trellis2 groove artifacts |
 | Environments | `top-down view` or `isometric` | May need tiling |
 | Stylized/Cartoon | `stylized, cel-shaded, bold outlines, 3D rendered` | Add `3D rendered` to help Trellis2 infer depth |
 
 Always include in every prompt: `game asset, flat lighting, no shadows, neutral grey background`
 
+### Golden Path Quick Reference
+
+| Asset Type | Vertex Target | Expected File Size | Pipeline Time | Key Prompt Keywords |
+|------------|--------------|-------------------|---------------|-------------------|
+| Creature (quadruped) | 150,000 | 20–25MB | ~4 min | `three-quarter front view, all four legs separated, color variation, cel-shaded, Genshin Impact style` |
+| Creature (bird) | 150,000 | 20–25MB | ~4 min | `three-quarter front view, wings folded, color variation in plumage, cel-shaded` |
+| Prop (textured) | 100,000 | 12–16MB | ~4 min | `centered, single object, orthographic, color variation in surface` |
+| Weapon | 50,000 | 8–12MB | ~4 min | `centered, single object, orthographic, flat lighting` |
+| Humanoid | 15,000 | 8–12MB | ~4 min | `front view, 3D rendered, neutral A-pose, legs separated, no cape` |
+
+> All times assume containers are warm. Flux concept: ~28s, BiRefNet mask: ~4s, Trellis2: ~170s, Stage 6: ~10s.
+
 **Prompt patterns that produce good 3D:**
 - ✅ "3D rendered" or "volumetric" for characters (helps Trellis2 infer depth)
 - ✅ Neutral A-pose / T-pose, clear limb separation, no cape or cloak for riggable humanoids
 - ✅ "character model sheet", "turnaround", or "front view" for humanoids you intend to animate
+- ✅ Color variation in creature fur/skin (darker back, lighter belly, distinct markings) — masks Trellis2 texture artifacts
 - ✅ Subjects with natural depth (overlapping elements, perspective stance)
 - ⚠️ "orthographic" alone on organic characters risks flat/bas-relief output
 - ⚠️ Pure 2D illustration style concepts resist 3D conversion
 - ❌ Humanoids with merged arms, draped capes, or wall-like silhouettes — Trellis2 often turns them into folded slabs
+- ❌ Uniform white/grey creature concepts — groove artifacts in Trellis2 baked textures become highly visible
 
 ## Blender MCP: Container Paths
 
@@ -415,16 +435,18 @@ The Blender container mounts `~/assets` at `/assets`. When writing `bpy` code vi
 2. **Upload images before referencing** — ComfyUI `LoadImage` only searches its `input/` dir
 3. **Stage 3 uses enhanced mask** — script creates RGBA (concept RGB + glow-preserving alpha), uploads to LoadImage node; InvertMask flips alpha for conditioning
 4. **Stage 3 output is file-based** — GLB goes to `~/comfyui/output/`, not ComfyUI history; the script detects new files
-5. **Stage 6 is conditional** — if Trellis2 baked textures exist, skip UV unwrap and CHORD PBR entirely; only decimate + export
-6. **CHORD PBR maps are 2D image-space** — they don't UV-align with 3D meshes; only use for untextured meshes
+5. **Stage 6 is conditional** — if Trellis2 baked textures exist, skip UV unwrap and CHORD PBR entirely; only decimate + rig + export. Override with `FORCE_PBR=1` to strip baked textures.
+6. **CHORD PBR maps are 2D image-space** — they don't UV-align with Trellis2 meshes; only use for untextured meshes or with `UV_METHOD=camera`
 7. **CHORD is research-only** (Ubisoft ML License) — never ship commercially
 8. **Container runtime is Podman** — never use `docker` commands
 9. **CUDA_VISIBLE_DEVICES is always 0** inside containers — CDI remaps GPUs
 10. **Blender render engine is `BLENDER_EEVEE`** — not `BLENDER_EEVEE_NEXT`
-11. **Trellis2 meshes are ~340-490K verts** — always decimate in Stage 6 (target: 5K–80K)
+11. **Trellis2 meshes are ~340-490K verts** — always decimate in Stage 6. Target: 150K for creatures (preserve UV fidelity), 5K–15K for humanoids, 2K–3K for props/weapons
 12. **Validate raw GLB shape after Stage 3** — Z-depth alone is not enough. For humanoids, render the raw GLB in `BLENDER_WORKBENCH` solid mode. If it looks like a curtain/slab, rectangular sheet, or fused-limb silhouette, re-run upstream before Stage 6.
 13. **Retry transient failures** — ConnectionResetError during Trellis2 is transient (timeout); retry once before declaring failure
 14. **Trellis2 time varies wildly** — simple convex shapes ~1-2 min, organic characters 2-9 min; set timeout to 900s minimum
+15. **Trellis2 default params are optimal** — 12 sampling steps, 7.5 guidance. Increasing these causes CUDA OOM on RTX 3090 and container crashes
+16. **Creature concepts need color variation** — uniform white/grey surfaces expose groove artifacts in Trellis2 baked textures. Always prompt for distinct markings/coloring.
 
 ## Error Handling
 

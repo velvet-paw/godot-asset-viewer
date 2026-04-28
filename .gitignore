@@ -161,3 +161,5 @@ docs/_build/
 *.bak
 *.backup
 reports/
+
+actors/
