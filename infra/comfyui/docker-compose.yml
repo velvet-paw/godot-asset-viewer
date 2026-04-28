@@ -1,0 +1,45 @@
+# ComfyUI — Operate-only Podman Compose
+#
+# Pulls a pre-built ComfyUI image from registry. Does NOT build from source.
+# For building the image, see the blender-container repository.
+#
+# Usage:
+#   podman compose -f infra/comfyui/docker-compose.yml up -d
+#   podman compose -f infra/comfyui/docker-compose.yml down
+#   COMFYUI_GPU=1 podman compose -f infra/comfyui/docker-compose.yml up -d
+#
+# Prerequisites:
+#   - Run infra/setup-dirs.sh to create host directories
+#   - Run infra/download-models.sh to download AI models
+#   - NVIDIA CDI configured (infra/compose-comfyui.sh handles this)
+
+services:
+  comfyui:
+    image: gaap/comfyui:${GAAP_VERSION:-latest}
+    container_name: gaap-comfyui
+    hostname: gaap-comfyui
+    entrypoint: ["/comfyui-entrypoint.sh"]
+    command: ["python", "/app/ComfyUI/main.py", "--listen", "0.0.0.0"]
+    devices:
+      - nvidia.com/gpu=${COMFYUI_GPU:-0}
+    security_opt:
+      - label=disable
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - CUDA_VISIBLE_DEVICES=0
+    ports:
+      - "${COMFYUI_PORT:-8188}:8188"
+    volumes:
+      - ~/comfyui/models:/app/ComfyUI/models:ro
+      - ~/comfyui/custom_nodes:/app/ComfyUI/custom_nodes
+      - ~/comfyui/output:/app/ComfyUI/output
+      - ~/comfyui/settings:/app/ComfyUI/user/default:rw
+      - ~/comfyui/flows:/app/ComfyUI/user/default/workflows:rw
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8188/system_stats"]
+      interval: 10s
+      timeout: 5s
+      start_period: 120s
+      retries: 18
+    restart: unless-stopped
