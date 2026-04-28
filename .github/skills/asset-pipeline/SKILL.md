@@ -91,6 +91,105 @@ Images: `gaap/comfyui:latest`, `gaap/blender:latest`, `gaap/blender-mcp:latest`.
 
 Container runtime is **Podman** — never use `docker` commands.
 
+## Early Quality Gates
+
+Run cheap checks after Stage 3 (before full Stage 6) to catch obvious failures:
+
+```bash
+python3 -c "
+import trimesh, os
+path = os.path.expanduser('~/assets/raw_3d/{asset_name}_NNNNN_.glb')
+scene = trimesh.load(path)
+mesh = scene.to_geometry()
+z_range = mesh.bounds[1][2] - mesh.bounds[0][2]
+verts = len(mesh.vertices)
+if z_range < 0.05:
+    print('EARLY_FAIL: bas_relief')
+elif verts < 100:
+    print('EARLY_FAIL: degenerate_mesh')
+else:
+    print('EARLY_PASS: proceed to Stage 6')
+"
+```
+
+If `EARLY_FAIL`, skip Stage 6 and go directly to remediation (saves GPU time).
+
+For **humanoids**, add a solid-render gate: import raw GLB into Blender in `BLENDER_WORKBENCH` `color_type='SINGLE'` and reject if the silhouette looks like a slab/curtain/fused limbs. Treat as upstream failure, not Stage 6 failure.
+
+## Prompt Refinement Strategies
+
+When `regenerate_concept` is needed, choose a DIFFERENT variation each attempt:
+
+### Humanoid Strategies
+
+| Attempt | Strategy | Added Keywords |
+|---------|----------|---------------|
+| 2 | Neutral riggable pose | `"3D rendered, character model sheet, neutral A-pose, arms away from torso, legs separated, no cape"` |
+| 3 | Clay turnaround | `"3D character model, turnaround sheet, neutral pose, clay render style, no cloak"` |
+| 4 | Front + depth cues | `"front view, volumetric, sculpted armor, separated limbs, strong body volume"` |
+| 5 | Maximum readability | `"game-ready humanoid, full body, clean silhouette, animation-ready, no occluding cloth, bold forms"` |
+
+### Creature/Quadruped Strategies
+
+| Attempt | Strategy | Added Keywords |
+|---------|----------|---------------|
+| 2 | Color variation emphasis | `"natural coloring with darker back and lighter belly, distinct markings, cel-shaded, Genshin Impact style"` |
+| 3 | Simpler forms | `"bold clean forms, smooth fur, strong silhouette, all four legs clearly separated"` |
+| 4 | Different angle | `"side profile view, stylized proportions, game character, visible color gradients across body"` |
+| 5 | Maximum readability | `"game-ready creature model, clean silhouette, bright color palette, bold markings, 3D render"` |
+
+**Critical:** Never use the exact same prompt twice. Always vary style/viewpoint keywords.
+**Critical for creatures:** Every prompt MUST request color variation.
+
+## Proven Reference Prompts
+
+First-attempt successes — use as starting templates:
+
+**Wolf (creature, quadruped):**
+```
+stylized grey wolf, natural grey fur with dark grey back and light grey belly, amber eyes, Genshin Impact style, 3D rendered, volumetric, three-quarter front view, all four legs visible and separated, fluffy tail, bold clean cel-shaded forms, game asset, flat lighting, no shadows, neutral grey background
+```
+
+**Owl (creature, bird):**
+```
+stylized owl, Genshin Impact style, 3D rendered, volumetric, three-quarter front view, perched upright with wings folded against body, sharp talons gripping a branch, tawny brown feathers with warm amber chest, cream-white facial disc, bright golden-yellow eyes with black pupils, dark brown wingtips, small ear tufts, round head, bold clean cel-shaded forms, game asset, flat lighting, no shadows, neutral grey background
+```
+
+**Clay Pot (prop):**
+```
+stylized hand-painted clay pot, round terracotta vessel with wide belly and narrow neck, painted cobalt blue and white geometric patterns around the body, warm orange-brown clay base color, visible brush stroke texture, small decorative handles on each side, centered, single object, orthographic view, game asset, flat lighting, no shadows, neutral grey background
+```
+
+## Golden Path Quick Reference
+
+| Asset Type | Vertex Target | File Size | Pipeline Time | Key Prompt Keywords |
+|------------|--------------|-----------|---------------|-------------------|
+| Creature (quadruped) | 150K | 20–25MB | ~4 min | `three-quarter, four legs separated, color variation, cel-shaded` |
+| Creature (bird) | 150K | 20–25MB | ~4 min | `three-quarter, wings folded, color variation in plumage` |
+| Prop (textured) | 100K | 12–16MB | ~4 min | `centered, single object, orthographic, color variation` |
+| Weapon | 50K | 8–12MB | ~4 min | `centered, single object, orthographic, flat lighting` |
+| Humanoid | 15K | 8–12MB | ~4 min | `front view, 3D rendered, neutral A-pose, no cape` |
+
+> Times assume warm containers. Flux: ~28s, BiRefNet: ~4s, Trellis2: ~170s, Stage 6: ~10s.
+
+## Prompt Do's and Don'ts
+
+- ✅ "3D rendered" or "volumetric" for characters (helps Trellis2 infer depth)
+- ✅ Neutral A-pose/T-pose, clear limb separation, no cape for riggable humanoids
+- ✅ Color variation in creature fur/skin (darker back, lighter belly, distinct markings)
+- ✅ Subjects with natural depth (overlapping elements, perspective)
+- ⚠️ "orthographic" alone on organic characters risks flat/bas-relief output
+- ❌ Humanoids with merged arms, capes, or wall-like silhouettes
+- ❌ Uniform white/grey creature concepts — groove artifacts visible
+
+## Reference Assets
+
+| Asset | Type | Verts | Size | GLB Path | Screenshot |
+|-------|------|-------|------|----------|------------|
+| Grey Wolf | creature | 150K | 24MB | `res://actors/wolf/wolf_final.glb` | `~/assets/final_glb/wolf_screenshot.png` |
+| Barn Owl | creature | 150K | 23MB | `res://actors/barn_owl/barn_owl_final.glb` | `~/assets/final_glb/barn_owl_screenshot.png` |
+| Clay Pot | prop | 100K | 15MB | `res://actors/clay_pot/clay_pot_final.glb` | `~/assets/final_glb/clay_pot_screenshot.png` |
+
 ## Agent Configs
 
 Specialized agent definitions in `.github/agents/`:
