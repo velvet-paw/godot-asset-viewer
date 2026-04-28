@@ -20,6 +20,19 @@ namespace TeaLeaves.UI
         private SubViewportContainer _viewportContainer = null!;
         private RichTextLabel _metaPanel = null!;
 
+        // Camera control buttons
+        private Button _rotateLeft = null!;
+        private Button _rotateRight = null!;
+        private Button _rotateUp = null!;
+        private Button _rotateDown = null!;
+        private Button _zoomIn = null!;
+        private Button _zoomOut = null!;
+        private Button _panLeft = null!;
+        private Button _panRight = null!;
+        private Button _panUp = null!;
+        private Button _panDown = null!;
+        private Button _resetCamera = null!;
+
         // State
         private List<AssetEntry> _allAssets = new();
         private List<AssetEntry> _filteredAssets = new();
@@ -33,11 +46,17 @@ namespace TeaLeaves.UI
         // Audio preview
         private AudioStreamPlayer? _audioPlayer;
 
-        // Camera orbit state
-        private float _orbitYaw;
-        private float _orbitPitch = -20f;
-        private float _orbitDistance = 3f;
-        private Vector3 _orbitTarget;
+        // Camera controller
+        private OrbitCamera _orbitCamera = new();
+
+        // Mouse drag state
+        private bool _isDragging;
+        private bool _isPanning;
+        private Vector2 _lastMousePos;
+
+        private const float RotateStep = 15f;
+        private const float ZoomStep = 0.5f;
+        private const float PanStep = 0.5f;
 
         private static readonly string[] TextureExtensions = { ".png", ".jpg", ".jpeg", ".webp", ".svg", ".bmp", ".tga" };
         private static readonly string[] MeshExtensions = { ".glb", ".gltf", ".obj", ".fbx" };
@@ -56,6 +75,20 @@ namespace TeaLeaves.UI
             _previewViewport = GetNode<SubViewport>("VBox/HSplit/RightSplit/ViewportContainer/PreviewViewport");
             _metaPanel = GetNode<RichTextLabel>("VBox/HSplit/RightSplit/MetaPanel");
 
+            // Camera control buttons
+            var cc = "VBox/HSplit/RightSplit/CameraControls/";
+            _rotateLeft = GetNode<Button>(cc + "RotateLeft");
+            _rotateRight = GetNode<Button>(cc + "RotateRight");
+            _rotateUp = GetNode<Button>(cc + "RotateUp");
+            _rotateDown = GetNode<Button>(cc + "RotateDown");
+            _zoomIn = GetNode<Button>(cc + "ZoomIn");
+            _zoomOut = GetNode<Button>(cc + "ZoomOut");
+            _panLeft = GetNode<Button>(cc + "PanLeft");
+            _panRight = GetNode<Button>(cc + "PanRight");
+            _panUp = GetNode<Button>(cc + "PanUp");
+            _panDown = GetNode<Button>(cc + "PanDown");
+            _resetCamera = GetNode<Button>(cc + "ResetCamera");
+
             _typeFilter.AddItem("All", 0);
             _typeFilter.AddItem("Textures", 1);
             _typeFilter.AddItem("Meshes", 2);
@@ -70,6 +103,19 @@ namespace TeaLeaves.UI
             _refreshButton.Pressed += OnRefreshPressed;
             _importButton.Pressed += OnImportPressed;
             _assetList.ItemSelected += OnAssetSelected;
+
+            // Camera button signals
+            _rotateLeft.Pressed += () => { _orbitCamera.Orbit(-RotateStep, 0); ApplyCameraOrbit(); };
+            _rotateRight.Pressed += () => { _orbitCamera.Orbit(RotateStep, 0); ApplyCameraOrbit(); };
+            _rotateUp.Pressed += () => { _orbitCamera.Orbit(0, RotateStep); ApplyCameraOrbit(); };
+            _rotateDown.Pressed += () => { _orbitCamera.Orbit(0, -RotateStep); ApplyCameraOrbit(); };
+            _zoomIn.Pressed += () => { _orbitCamera.Zoom(-ZoomStep * _orbitCamera.Distance * 0.2f); ApplyCameraOrbit(); };
+            _zoomOut.Pressed += () => { _orbitCamera.Zoom(ZoomStep * _orbitCamera.Distance * 0.2f); ApplyCameraOrbit(); };
+            _panLeft.Pressed += () => { _orbitCamera.Pan(-PanStep, 0); ApplyCameraOrbit(); };
+            _panRight.Pressed += () => { _orbitCamera.Pan(PanStep, 0); ApplyCameraOrbit(); };
+            _panUp.Pressed += () => { _orbitCamera.Pan(0, PanStep); ApplyCameraOrbit(); };
+            _panDown.Pressed += () => { _orbitCamera.Pan(0, -PanStep); ApplyCameraOrbit(); };
+            _resetCamera.Pressed += () => { _orbitCamera.Reset(); ApplyCameraOrbit(); };
 
             Setup3DPreview();
             RegisterDevToolsCommands();
@@ -492,36 +538,98 @@ namespace TeaLeaves.UI
 
         private void SetCameraOrbit(float yaw, float pitch, float distance, Vector3 target)
         {
-            _orbitYaw = yaw;
-            _orbitPitch = pitch;
-            _orbitDistance = distance;
-            _orbitTarget = target;
+            _orbitCamera.SetState(yaw, pitch, distance, target);
+            _orbitCamera.SaveDefaults();
             ApplyCameraOrbit();
         }
 
         private void FitCameraToAabb(Aabb aabb)
         {
-            _orbitTarget = aabb.GetCenter();
+            var center = aabb.GetCenter();
             float size = aabb.Size.Length();
-            _orbitDistance = Mathf.Max(size * 1.5f, 1f);
-            _orbitYaw = 30f;
-            _orbitPitch = -25f;
+            float distance = Mathf.Max(size * 1.5f, 1f);
+            _orbitCamera.SetState(30f, -25f, distance, center);
+            _orbitCamera.SaveDefaults();
             ApplyCameraOrbit();
         }
 
         private void ApplyCameraOrbit()
         {
             if (_camera3D == null) return;
+            var (position, lookAt) = _orbitCamera.ComputeTransform();
+            _camera3D.Position = position;
+            _camera3D.LookAt(lookAt, Vector3.Up);
+        }
 
-            float yawRad = Mathf.DegToRad(_orbitYaw);
-            float pitchRad = Mathf.DegToRad(_orbitPitch);
+        public override void _UnhandledInput(InputEvent @event)
+        {
+            if (@event is InputEventMouseButton mb)
+            {
+                HandleMouseButton(mb);
+            }
+            else if (@event is InputEventMouseMotion mm)
+            {
+                HandleMouseMotion(mm);
+            }
+            else if (@event is InputEventKey key && key.Pressed && !key.Echo)
+            {
+                HandleKeyInput(key);
+            }
+        }
 
-            float x = _orbitDistance * Mathf.Cos(pitchRad) * Mathf.Sin(yawRad);
-            float y = _orbitDistance * Mathf.Sin(-pitchRad);
-            float z = _orbitDistance * Mathf.Cos(pitchRad) * Mathf.Cos(yawRad);
+        private void HandleMouseButton(InputEventMouseButton mb)
+        {
+            if (mb.ButtonIndex == MouseButton.Middle)
+            {
+                if (mb.Pressed)
+                {
+                    _isDragging = true;
+                    _isPanning = mb.ShiftPressed;
+                    _lastMousePos = mb.Position;
+                }
+                else
+                {
+                    _isDragging = false;
+                    _isPanning = false;
+                }
+            }
+            else if (mb.ButtonIndex == MouseButton.WheelUp && mb.Pressed)
+            {
+                _orbitCamera.Zoom(-_orbitCamera.Distance * 0.1f);
+                ApplyCameraOrbit();
+            }
+            else if (mb.ButtonIndex == MouseButton.WheelDown && mb.Pressed)
+            {
+                _orbitCamera.Zoom(_orbitCamera.Distance * 0.1f);
+                ApplyCameraOrbit();
+            }
+        }
 
-            _camera3D.Position = _orbitTarget + new Vector3(x, y, z);
-            _camera3D.LookAt(_orbitTarget, Vector3.Up);
+        private void HandleMouseMotion(InputEventMouseMotion mm)
+        {
+            if (!_isDragging) return;
+
+            var delta = mm.Position - _lastMousePos;
+            _lastMousePos = mm.Position;
+
+            if (_isPanning)
+            {
+                _orbitCamera.Pan(-delta.X * 0.01f, delta.Y * 0.01f);
+            }
+            else
+            {
+                _orbitCamera.Orbit(delta.X * 0.5f, -delta.Y * 0.5f);
+            }
+            ApplyCameraOrbit();
+        }
+
+        private void HandleKeyInput(InputEventKey key)
+        {
+            if (key.Keycode == Key.R)
+            {
+                _orbitCamera.Reset();
+                ApplyCameraOrbit();
+            }
         }
 
         #endregion
@@ -724,32 +832,90 @@ namespace TeaLeaves.UI
             if (args.ValueKind != JsonValueKind.Object)
                 return new CommandResult(false, "Expected object with camera parameters");
 
-            if (args.TryGetProperty("yaw", out var yawProp))
-                _orbitYaw = (float)yawProp.GetDouble();
-            if (args.TryGetProperty("pitch", out var pitchProp))
-                _orbitPitch = (float)pitchProp.GetDouble();
-            if (args.TryGetProperty("distance", out var distProp))
-                _orbitDistance = (float)distProp.GetDouble();
-            if (args.TryGetProperty("target", out var targetProp) && targetProp.ValueKind == JsonValueKind.Array)
+            string action = "set";
+            if (args.TryGetProperty("action", out var actionProp))
+                action = actionProp.GetString() ?? "set";
+
+            switch (action)
             {
-                var arr = targetProp.EnumerateArray().ToArray();
-                if (arr.Length == 3)
+                case "orbit":
                 {
-                    _orbitTarget = new Vector3(
-                        (float)arr[0].GetDouble(),
-                        (float)arr[1].GetDouble(),
-                        (float)arr[2].GetDouble()
-                    );
+                    float dy = 0, dp = 0;
+                    if (args.TryGetProperty("delta_yaw", out var dyProp))
+                        dy = (float)dyProp.GetDouble();
+                    if (args.TryGetProperty("delta_pitch", out var dpProp))
+                        dp = (float)dpProp.GetDouble();
+                    _orbitCamera.Orbit(dy, dp);
+                    ApplyCameraOrbit();
+                    return CameraStateResult("Orbit applied");
+                }
+                case "zoom":
+                {
+                    float delta = 0;
+                    if (args.TryGetProperty("delta", out var dProp))
+                        delta = (float)dProp.GetDouble();
+                    else if (args.TryGetProperty("delta_zoom", out var dzProp))
+                        delta = (float)dzProp.GetDouble();
+                    _orbitCamera.Zoom(delta);
+                    ApplyCameraOrbit();
+                    return CameraStateResult("Zoom applied");
+                }
+                case "pan":
+                {
+                    float dx = 0, dy = 0;
+                    if (args.TryGetProperty("delta_x", out var dxProp))
+                        dx = (float)dxProp.GetDouble();
+                    if (args.TryGetProperty("delta_y", out var dyProp))
+                        dy = (float)dyProp.GetDouble();
+                    _orbitCamera.Pan(dx, dy);
+                    ApplyCameraOrbit();
+                    return CameraStateResult("Pan applied");
+                }
+                case "reset":
+                {
+                    _orbitCamera.Reset();
+                    ApplyCameraOrbit();
+                    return CameraStateResult("Camera reset");
+                }
+                case "get_state":
+                {
+                    return CameraStateResult("Camera state");
+                }
+                case "set":
+                default:
+                {
+                    // Backward-compatible: set absolute values
+                    if (args.TryGetProperty("yaw", out var yawProp))
+                        _orbitCamera.SetState((float)yawProp.GetDouble(), _orbitCamera.Pitch, _orbitCamera.Distance, _orbitCamera.Target);
+                    if (args.TryGetProperty("pitch", out var pitchProp))
+                        _orbitCamera.SetState(_orbitCamera.Yaw, (float)pitchProp.GetDouble(), _orbitCamera.Distance, _orbitCamera.Target);
+                    if (args.TryGetProperty("distance", out var distProp))
+                        _orbitCamera.SetState(_orbitCamera.Yaw, _orbitCamera.Pitch, (float)distProp.GetDouble(), _orbitCamera.Target);
+                    if (args.TryGetProperty("target", out var targetProp) && targetProp.ValueKind == JsonValueKind.Array)
+                    {
+                        var arr = targetProp.EnumerateArray().ToArray();
+                        if (arr.Length == 3)
+                        {
+                            var target = new Vector3((float)arr[0].GetDouble(), (float)arr[1].GetDouble(), (float)arr[2].GetDouble());
+                            _orbitCamera.SetState(_orbitCamera.Yaw, _orbitCamera.Pitch, _orbitCamera.Distance, target);
+                        }
+                    }
+                    ApplyCameraOrbit();
+                    return CameraStateResult("Camera updated");
                 }
             }
+        }
 
-            ApplyCameraOrbit();
-            return new CommandResult(true, "Camera updated", new
+        private CommandResult CameraStateResult(string message)
+        {
+            var t = _orbitCamera.Target + _orbitCamera.PanOffset;
+            return new CommandResult(true, message, new
             {
-                yaw = _orbitYaw,
-                pitch = _orbitPitch,
-                distance = _orbitDistance,
-                target = new[] { _orbitTarget.X, _orbitTarget.Y, _orbitTarget.Z }
+                yaw = _orbitCamera.Yaw,
+                pitch = _orbitCamera.Pitch,
+                distance = _orbitCamera.Distance,
+                target = new[] { t.X, t.Y, t.Z },
+                pan_offset = new[] { _orbitCamera.PanOffset.X, _orbitCamera.PanOffset.Y, _orbitCamera.PanOffset.Z }
             });
         }
 

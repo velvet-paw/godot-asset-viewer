@@ -339,23 +339,46 @@ def cmd_asset_screenshot(args, project_path: Path):
 def cmd_asset_camera(args, project_path: Path):
     """Control the asset viewer camera."""
     cmd_args = {"action": args.action}
-    if args.yaw is not None:
-        cmd_args["delta_yaw"] = args.yaw
-    if args.pitch is not None:
-        cmd_args["delta_pitch"] = args.pitch
-    if args.zoom is not None:
-        cmd_args["delta_zoom"] = args.zoom
+
+    if args.action == "set":
+        # Absolute values for set
+        if args.yaw is not None:
+            cmd_args["yaw"] = args.yaw
+        if args.pitch is not None:
+            cmd_args["pitch"] = args.pitch
+        if args.zoom is not None:
+            cmd_args["distance"] = args.zoom
+    elif args.action == "orbit":
+        if args.yaw is not None:
+            cmd_args["delta_yaw"] = args.yaw
+        if args.pitch is not None:
+            cmd_args["delta_pitch"] = args.pitch
+    elif args.action == "zoom":
+        if args.zoom is not None:
+            cmd_args["delta"] = args.zoom
+    elif args.action == "pan":
+        if args.pan_x is not None:
+            cmd_args["delta_x"] = args.pan_x
+        if args.pan_y is not None:
+            cmd_args["delta_y"] = args.pan_y
+
     if args.position:
         parts = [float(v) for v in args.position.split(",")]
         if len(parts) == 3:
-            cmd_args["position"] = {"x": parts[0], "y": parts[1], "z": parts[2]}
+            cmd_args["target"] = parts
         else:
             print("Error: --position must be X,Y,Z (e.g., 0,1,0)", file=sys.stderr)
             sys.exit(1)
 
     result = send_command(project_path, "asset_viewer_camera", cmd_args)
     if result["success"]:
-        print(f"Camera {args.action} applied")
+        data = result.get("data", {})
+        if args.action == "get_state":
+            print(f"Yaw: {data.get('yaw', '?')}°  Pitch: {data.get('pitch', '?')}°  "
+                  f"Distance: {data.get('distance', '?')}  Target: {data.get('target', '?')}")
+        else:
+            print(f"Camera {args.action}: yaw={data.get('yaw', '?')}° pitch={data.get('pitch', '?')}° "
+                  f"dist={data.get('distance', '?')}")
     else:
         print(f"Failed: {result['message']}", file=sys.stderr)
         sys.exit(1)
@@ -604,11 +627,13 @@ def main():
 
     # asset-camera
     p = subparsers.add_parser("asset-camera", help="Control asset viewer camera")
-    p.add_argument("action", help="Camera action (orbit, zoom, reset, set_position)")
-    p.add_argument("--yaw", type=float, help="Yaw delta in degrees")
-    p.add_argument("--pitch", type=float, help="Pitch delta in degrees")
-    p.add_argument("--zoom", type=float, help="Zoom delta")
-    p.add_argument("--position", help="Camera position as X,Y,Z")
+    p.add_argument("action", help="Camera action (orbit, zoom, pan, reset, get_state, set)")
+    p.add_argument("--yaw", type=float, help="Yaw delta in degrees (for orbit)")
+    p.add_argument("--pitch", type=float, help="Pitch delta in degrees (for orbit)")
+    p.add_argument("--zoom", type=float, help="Zoom delta (for zoom; negative=closer)")
+    p.add_argument("--pan-x", type=float, help="Pan X delta (for pan; positive=right)")
+    p.add_argument("--pan-y", type=float, help="Pan Y delta (for pan; positive=up)")
+    p.add_argument("--position", help="Camera position as X,Y,Z (for set)")
     p.set_defaults(func=cmd_asset_camera)
 
     # asset-audio
