@@ -1460,26 +1460,17 @@ else:
         for mod in list(lod_obj.modifiers):
             lod_obj.modifiers.remove(mod)
 
-        # Decimate LOD via voxel remesh (gives predictable vertex count;
-        # texture detail doesn't matter at LOD distances). Fall back to
-        # collapse decimate if voxel remesh overshoots.
+        # Decimate LOD via collapse decimation (preserves UV mapping).
+        # Voxel remesh was previously used but destroys UVs, causing shiny
+        # metallic artifacts when the metallicRoughness texture is sampled
+        # from incorrect UV coordinates on the simplified mesh.
         bpy.context.view_layer.objects.active = lod_obj
         current_verts = len(lod_obj.data.vertices)
         if current_verts > lod_target * 1.1:
-            import math
-            # Voxel size calibration: size ∝ bbox / sqrt(target_verts)
-            # Factor of 2 from empirical testing on Trellis2 meshes
-            bbox_diag = max(lod_obj.dimensions) if max(lod_obj.dimensions) > 0 else 1.0
-            voxel_size = bbox_diag / (2.0 * math.sqrt(max(lod_target, 100)))
-            voxel_size = max(0.003, voxel_size)
-            lod_obj.data.remesh_voxel_size = voxel_size
-            bpy.ops.object.voxel_remesh()
-            # If still over target, do a collapse pass
-            if len(lod_obj.data.vertices) > lod_target * 1.3:
-                ratio = float(lod_target) / len(lod_obj.data.vertices)
-                mod = lod_obj.modifiers.new(name="Decimate", type='DECIMATE')
-                mod.ratio = max(0.10, ratio)
-                bpy.ops.object.modifier_apply(modifier=mod.name)
+            ratio = float(lod_target) / current_verts
+            mod = lod_obj.modifiers.new(name="Decimate", type='DECIMATE')
+            mod.ratio = max(0.05, ratio)
+            bpy.ops.object.modifier_apply(modifier=mod.name)
 
         final_verts = len(lod_obj.data.vertices)
 

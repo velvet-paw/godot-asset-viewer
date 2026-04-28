@@ -213,6 +213,7 @@ with open(os.path.expanduser(f'~/assets/validation_reports/${asset_name}_validat
 | Uniform white/grey with grooves | Concept lacked color variation | FAIL (creature) |
 | 130K+ verts after decimation | Organic shape resists decimation | PASS (creature), WARN (other) |
 | Dark/blue glossy appearance | CHORD PBR roughness bleeding | FAIL |
+| Shiny brown metallic patches on LODs | Voxel remesh destroyed UV mapping for metallicRoughness | WARN — strip metallicRoughness via optimize-for-web.sh |
 | Godot import crash on large GLB | >20MB GLB can OOM headless import | WARN (retry) |
 | Black render in Godot only | Shader compilation failure or missing textures | FAIL |
 

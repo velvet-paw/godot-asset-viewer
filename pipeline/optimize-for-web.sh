@@ -143,28 +143,42 @@ REDIR="/dev/null"
 
 CURRENT="$INPUT"
 
-# Step 1: Resize textures
-echo -n "  [1/3] Resize textures to ${TEXTURE_SIZE}px... "
-NEXT="$TMPDIR/step1_resize.glb"
-$GLTF_CMD resize --width "$TEXTURE_SIZE" --height "$TEXTURE_SIZE" "$CURRENT" "$NEXT" > "$REDIR" 2>&1
-STEP1_SIZE=$(du -h "$NEXT" | cut -f1)
-echo "done ($STEP1_SIZE)"
-CURRENT="$NEXT"
+# Step 1: Strip metallicRoughness texture (prevents shiny artifacts from UV distortion)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STRIP_SCRIPT="$SCRIPT_DIR/strip-metalrough.mjs"
+if [[ -f "$STRIP_SCRIPT" ]]; then
+    echo -n "  [1/4] Strip metallicRoughness... "
+    NEXT="$TMPDIR/step1_strip.glb"
+    node "$STRIP_SCRIPT" "$CURRENT" "$NEXT" > "$REDIR" 2>&1
+    STEP1_SIZE=$(du -h "$NEXT" | cut -f1)
+    echo "done ($STEP1_SIZE)"
+    CURRENT="$NEXT"
+else
+    echo "  [1/4] Strip metallicRoughness... SKIP (script not found)"
+fi
 
-# Step 2: Simplify mesh
-echo -n "  [2/3] Simplify mesh (ratio=${SIMPLIFY_RATIO})... "
-NEXT="$TMPDIR/step2_simplify.glb"
-$GLTF_CMD simplify --ratio "$SIMPLIFY_RATIO" --error 1.0 "$CURRENT" "$NEXT" > "$REDIR" 2>&1
+# Step 2: Resize textures
+echo -n "  [2/4] Resize textures to ${TEXTURE_SIZE}px... "
+NEXT="$TMPDIR/step2_resize.glb"
+$GLTF_CMD resize --width "$TEXTURE_SIZE" --height "$TEXTURE_SIZE" "$CURRENT" "$NEXT" > "$REDIR" 2>&1
 STEP2_SIZE=$(du -h "$NEXT" | cut -f1)
 echo "done ($STEP2_SIZE)"
 CURRENT="$NEXT"
 
-# Step 3: Dedup + Prune
-echo -n "  [3/3] Dedup + Prune... "
-NEXT="$TMPDIR/step3_dedup.glb"
+# Step 3: Simplify mesh
+echo -n "  [3/4] Simplify mesh (ratio=${SIMPLIFY_RATIO})... "
+NEXT="$TMPDIR/step3_simplify.glb"
+$GLTF_CMD simplify --ratio "$SIMPLIFY_RATIO" --error 1.0 "$CURRENT" "$NEXT" > "$REDIR" 2>&1
+STEP3_SIZE=$(du -h "$NEXT" | cut -f1)
+echo "done ($STEP3_SIZE)"
+CURRENT="$NEXT"
+
+# Step 4: Dedup + Prune
+echo -n "  [4/4] Dedup + Prune... "
+NEXT="$TMPDIR/step4_dedup.glb"
 $GLTF_CMD dedup "$CURRENT" "$NEXT" > "$REDIR" 2>&1
 CURRENT="$NEXT"
-NEXT="$TMPDIR/step3_prune.glb"
+NEXT="$TMPDIR/step4_prune.glb"
 $GLTF_CMD prune "$CURRENT" "$NEXT" > "$REDIR" 2>&1
 STEP3_SIZE=$(du -h "$NEXT" | cut -f1)
 echo "done ($STEP3_SIZE)"

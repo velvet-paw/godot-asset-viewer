@@ -208,6 +208,8 @@ QUALITY=desktop ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_lod2.g
 | `desktop` | 1024×1024 PNG | 0.5 ratio | <5 MB | Desktop games |
 | `source` | Original | None | No limit | Archival, highest quality |
 
+The pipeline also **strips the metallicRoughness texture** (step 1) and sets flat scalar values (metallic=0, roughness=0.9). This prevents shiny brown artifacts caused by UV distortion during LOD decimation.
+
 ### Godot 4.6 Compatibility (CRITICAL)
 
 These operations **break** Godot 4.6 rendering — never use them:

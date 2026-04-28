@@ -1,0 +1,5 @@
+{
+  "devDependencies": {
+    "@gltf-transform/core": "^4.3.0"
+  }
+}
