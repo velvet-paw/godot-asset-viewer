@@ -178,15 +178,16 @@ stylized hand-painted clay pot, round terracotta vessel with wide belly and narr
 
 ## Golden Path Quick Reference
 
-| Asset Type | Vertex Target | File Size | Pipeline Time | Key Prompt Keywords |
-|------------|--------------|-----------|---------------|-------------------|
-| Creature (quadruped) | 150K | 20–25MB | ~4 min | `three-quarter, four legs separated, color variation, cel-shaded` |
-| Creature (bird) | 150K | 20–25MB | ~4 min | `three-quarter, wings folded, color variation in plumage` |
-| Prop (textured) | 100K | 12–16MB | ~4 min | `centered, single object, orthographic, color variation` |
-| Weapon | 50K | 8–12MB | ~4 min | `centered, single object, orthographic, flat lighting` |
-| Humanoid | 15K | 8–12MB | ~4 min | `front view, 3D rendered, neutral A-pose, no cape` |
+| Asset Type | Source Verts | Desktop (30K) | Web (15K) | Pipeline Time | Key Prompt Keywords |
+|------------|-------------|---------------|-----------|---------------|-------------------|
+| Creature (quadruped) | 150K | ~5 MB | ~2 MB | ~50s×3 | `three-quarter, four legs separated, color variation, cel-shaded` |
+| Creature (bird) | 150K | ~5 MB | ~2 MB | ~50s×3 | `three-quarter, wings folded, color variation in plumage` |
+| Prop (textured) | 100K | ~4 MB | ~1.5 MB | ~50s×3 | `centered, single object, orthographic, color variation` |
+| Weapon | 50K | ~3 MB | ~1 MB | ~50s×3 | `centered, single object, orthographic, flat lighting` |
+| Humanoid | 15K | ~3 MB | ~1.5 MB | ~50s×3 | `front view, 3D rendered, neutral A-pose, no cape` |
 
-> Times assume warm containers. Flux: ~28s, BiRefNet: ~4s, Trellis2: ~170s, Stage 6: ~10s.
+> Times assume warm containers + 3 tiers. Flux: ~28s, BiRefNet: ~4s, Trellis2: ~170s, Stage 6: ~15s×3.
+> File sizes with JPEG textures + MR strip + doubleSided. Mesh geometry dominates due to per-triangle UVs.
 
 ## Prompt Do's and Don'ts
 
@@ -204,27 +205,48 @@ After Stage 6, **always** run web optimization unless the user explicitly reques
 
 **Input must be a Blender collapse-decimated GLB** (e.g., `_final.glb` from Stage 6). Do NOT use raw Trellis2 output.
 
-```bash
-# Default: web quality (<2 MB target)
-QUALITY=web ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_final.glb ~/assets/final_glb/{asset}_web.glb
+### Three-Tier Generation (Recommended)
 
-# Desktop quality (<5 MB target)
+Generate source, desktop, and web variants from the same Trellis2 output:
+
+```bash
+./pipeline/generate-asset-tiers.sh <input_glb> <asset_name> [asset_type]
+```
+
+| Tier | Verts | Textures | Rigging | Target Size | Use Case |
+|------|-------|----------|---------|-------------|----------|
+| `source` | 150K | Original PNG | Yes | Unlimited | Archival, highest quality |
+| `desktop` | 30K | 1024px JPEG q85 | Yes | <5 MB | Desktop games |
+| `web` | 15K | 512px JPEG q80 | No | <2 MB | Browser games, mobile |
+
+Override defaults with env vars: `SOURCE_VERTS`, `DESKTOP_VERTS`, `WEB_VERTS`.
+
+### Single-Tier Optimization
+
+For manual control, use optimize-for-web.sh directly:
+
+```bash
+# Desktop quality
 QUALITY=desktop ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_final.glb ~/assets/final_glb/{asset}_desktop.glb
+
+# Web quality
+QUALITY=web ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_final.glb ~/assets/final_glb/{asset}_web.glb
 ```
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `QUALITY` | `web` | **REQUIRED.** `web` (512px textures), `desktop` (1024px textures), `source` (no-op) |
+| `QUALITY` | `web` | **REQUIRED.** `web` (512px JPEG q80), `desktop` (1024px JPEG q85), `source` (no-op) |
 | `TEXTURE_SIZE` | (per preset) | Override texture resize dimension |
+| `JPEG_QUALITY` | (per preset) | JPEG compression quality 1-100 (0=skip, keep PNG) |
 | `STRIP_METALROUGH` | `1` | Set to `0` to keep metallicRoughness texture (only for undecimated meshes) |
 
 ### Quality Presets
 
-| Preset | Textures | Mesh | Target Size | Use Case |
-|--------|----------|------|-------------|----------|
-| `web` (default) | 512×512 PNG | As-is (decimated by Blender) | <2 MB | Browser games, mobile |
-| `desktop` | 1024×1024 PNG | As-is (decimated by Blender) | <5 MB | Desktop games |
-| `source` | Original | None | No limit | Archival, highest quality |
+| Preset | Textures | Format | Mesh | Target Size | Use Case |
+|--------|----------|--------|------|-------------|----------|
+| `web` (default) | 512×512 | JPEG q80 | As-is | <2 MB | Browser games, mobile |
+| `desktop` | 1024×1024 | JPEG q85 | As-is | <5 MB | Desktop games |
+| `source` | Original | PNG | None | No limit | Archival, highest quality |
 
 MetallicRoughness is **stripped by default** (metallic=0, roughness=0.9). Even with Blender collapse decimation, the MR texture on decimated meshes causes shiny brown artifacts in Godot. Set `STRIP_METALROUGH=0` only for undecimated full-res meshes.
 
@@ -265,6 +287,7 @@ hardcoded `remesh_project=0` (no surface projection) and `remesh_band=1` (minimu
    - Boundary edges: **402K → 230K** (43% reduction)
    - Vertex/face ratio: **1.04 (soup) → 0.78 (shared)**
    - **No visible polygon gaps** after decimation to 30K verts
+   - **No texture bleed** — decimation preserves UV fidelity on manifold topology
 
 2. **Defense-in-depth — `doubleSided=true`** (optimize-for-web.sh):
    Applied automatically during texture optimization. Renders back faces to fill any
@@ -285,6 +308,12 @@ These issues are **resolved** by the golden path above but documented for refere
 
 3. **File size inflation** — Merged vertices with different normals/UVs got duplicated
    in glTF export, making files larger despite fewer Blender vertices.
+
+4. **Texture bleed after decimation** — With per-triangle UV islands, collapse decimation
+   averaged UV coordinates across island boundaries, sampling wrong texels. Light-colored
+   pixels from unrelated UV islands bled through dark areas (visible on belly/legs).
+   **Fix:** Regenerate with `remesh_project=0.9` — the improved topology produces coherent
+   decimation that preserves UV fidelity. No post-hoc re-bake needed.
 
 ## Reference Assets
 

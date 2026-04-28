@@ -2,7 +2,7 @@
 # optimize-for-web.sh — Optimize GLB assets for web/desktop using gltf-transform
 #
 # Godot 4.6 compatible: NO quantize, NO WebP-in-GLB, NO Draco, NO KTX2, NO meshopt
-# Safe operations: resize textures (PNG), dedup, prune
+# Safe operations: resize textures (PNG→JPEG), dedup, prune, doubleSided
 #
 # IMPORTANT: All mesh decimation must be done in Blender BEFORE this script.
 # gltf-transform simplify destroys normals on Trellis2 meshes, causing shiny
@@ -12,11 +12,11 @@
 #   ./pipeline/optimize-for-web.sh <input.glb> [output.glb] [--quality web|desktop|source]
 #
 # Quality presets:
-#   web      (default) — 512px textures, targets <2 MB
-#   desktop  — 1024px textures, targets <5 MB
+#   web      (default) — 512px textures, JPEG q80, targets <2 MB
+#   desktop  — 1024px textures, JPEG q85, targets <5 MB
 #   source   — no optimization (copy as-is)
 #
-# Requirements: npx, @gltf-transform/cli (v4+)
+# Requirements: npx, @gltf-transform/cli (v4+), sharp (npm)
 
 set -euo pipefail
 
@@ -48,6 +48,7 @@ while [[ $# -gt 0 ]]; do
             echo "Environment variables:"
             echo "  QUALITY=web|desktop|source    Quality preset (default: web)"
             echo "  TEXTURE_SIZE=512              Override texture resize dimension"
+            echo "  JPEG_QUALITY=80               JPEG compression quality 1-100 (0=skip)"
             echo "  STRIP_METALROUGH=0            Keep metallicRoughness texture (default: strip)"
             echo "  VERBOSE=1                     Show gltf-transform output"
             exit 0
@@ -92,9 +93,11 @@ fi
 case "$QUALITY" in
     web)
         TEXTURE_SIZE="${TEXTURE_SIZE:-512}"
+        JPEG_QUALITY="${JPEG_QUALITY:-80}"
         ;;
     desktop)
         TEXTURE_SIZE="${TEXTURE_SIZE:-1024}"
+        JPEG_QUALITY="${JPEG_QUALITY:-85}"
         ;;
     source)
         echo "Quality: source — copying as-is"
@@ -135,9 +138,10 @@ REDIR="/dev/null"
 [[ "$VERBOSE" == "1" ]] && REDIR="/dev/stderr"
 
 CURRENT="$INPUT"
+TOTAL_STEPS=5
 
 # Step 1: Resize textures
-echo -n "  [1/4] Resize textures to ${TEXTURE_SIZE}px... "
+echo -n "  [1/${TOTAL_STEPS}] Resize textures to ${TEXTURE_SIZE}px... "
 NEXT="$TMPDIR/step1_resize.glb"
 $GLTF_CMD resize --width "$TEXTURE_SIZE" --height "$TEXTURE_SIZE" "$CURRENT" "$NEXT" > "$REDIR" 2>&1
 STEP1_SIZE=$(du -h "$NEXT" | cut -f1)
@@ -145,7 +149,7 @@ echo "done ($STEP1_SIZE)"
 CURRENT="$NEXT"
 
 # Step 2: Dedup + Prune
-echo -n "  [2/4] Dedup + Prune... "
+echo -n "  [2/${TOTAL_STEPS}] Dedup + Prune... "
 NEXT="$TMPDIR/step2_dedup.glb"
 $GLTF_CMD dedup "$CURRENT" "$NEXT" > "$REDIR" 2>&1
 CURRENT="$NEXT"
@@ -161,30 +165,48 @@ CURRENT="$NEXT"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STRIP_SCRIPT="$SCRIPT_DIR/strip-metalrough.mjs"
 if [[ "${STRIP_METALROUGH:-1}" == "1" && -f "$STRIP_SCRIPT" ]]; then
-    echo -n "  [3/4] Strip metallicRoughness + doubleSided... "
+    echo -n "  [3/${TOTAL_STEPS}] Strip metallicRoughness + doubleSided... "
     NEXT="$TMPDIR/step3_strip.glb"
     node "$STRIP_SCRIPT" "$CURRENT" "$NEXT" > "$REDIR" 2>&1
     STEP3_SIZE=$(du -h "$NEXT" | cut -f1)
     echo "done ($STEP3_SIZE)"
     CURRENT="$NEXT"
 else
-    echo "  [3/4] Strip metallicRoughness... SKIP (STRIP_METALROUGH=0)"
+    echo "  [3/${TOTAL_STEPS}] Strip metallicRoughness... SKIP (STRIP_METALROUGH=0)"
 fi
 
-# Step 4: Set doubleSided on all materials
+# Step 4: Convert PNG textures to JPEG (lossy, ~70-90% smaller textures)
+# Godot 4.6 supports JPEG in GLB natively. Set JPEG_QUALITY=0 to skip.
+JPEG_SCRIPT="$SCRIPT_DIR/png-to-jpeg.mjs"
+JPEG_QUALITY="${JPEG_QUALITY:-80}"
+if [[ "$JPEG_QUALITY" != "0" && -f "$JPEG_SCRIPT" ]]; then
+    echo -n "  [4/${TOTAL_STEPS}] PNG→JPEG (q=${JPEG_QUALITY})... "
+    NEXT="$TMPDIR/step4_jpeg.glb"
+    if node "$JPEG_SCRIPT" "$CURRENT" "$NEXT" "$JPEG_QUALITY" > "$REDIR" 2>&1; then
+        STEP4_SIZE=$(du -h "$NEXT" | cut -f1)
+        echo "done ($STEP4_SIZE)"
+        CURRENT="$NEXT"
+    else
+        echo "SKIP (sharp unavailable)"
+    fi
+else
+    echo "  [4/${TOTAL_STEPS}] PNG→JPEG... SKIP (JPEG_QUALITY=0)"
+fi
+
+# Step 5: Set doubleSided on all materials
 # Trellis2 triangle-soup meshes have gaps between disconnected triangles after
 # decimation. doubleSided renders back faces, visually filling the gaps at zero
 # file-size cost. Step 3 already sets this when MR stripping is on; this step
 # catches the STRIP_METALROUGH=0 case.
 DOUBLESIDED_SCRIPT="$SCRIPT_DIR/set-doublesided.mjs"
 if [[ "${STRIP_METALROUGH:-1}" != "1" && -f "$DOUBLESIDED_SCRIPT" ]]; then
-    echo -n "  [4/4] Set doubleSided... "
-    NEXT="$TMPDIR/step4_doublesided.glb"
+    echo -n "  [5/${TOTAL_STEPS}] Set doubleSided... "
+    NEXT="$TMPDIR/step5_doublesided.glb"
     node "$DOUBLESIDED_SCRIPT" "$CURRENT" "$NEXT" > "$REDIR" 2>&1
     echo "done"
     CURRENT="$NEXT"
 else
-    echo "  [4/4] Set doubleSided... (included in step 3)"
+    echo "  [5/${TOTAL_STEPS}] Set doubleSided... (included in step 3)"
 fi
 
 # Copy to output
