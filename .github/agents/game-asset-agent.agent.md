@@ -51,14 +51,17 @@ Both containers share `~/assets/` via volume mounts.
 ./pipeline/stage3-3d.sh concept_00001_.png http://localhost:8188 my_sword
 ./pipeline/stage4-pbr.sh concept_00001_.png http://localhost:8188 my_sword
 ./pipeline/stage6-blender.sh my_sword_00001_.glb my_sword http://localhost:8000
+# NOTE: Always set ASSET_TYPE and TARGET_VERTS — see Stage 6 examples below
 ```
 
-Stage 6 examples:
+Stage 6 examples (**always** pass `ASSET_TYPE` and `TARGET_VERTS`):
 ```bash
-ASSET_TYPE=humanoid GENERATE_LODS=1 GENERATE_COLLISION=1 ./pipeline/stage6-blender.sh warrior_00001_.glb dark_knight http://localhost:8000
-ASSET_TYPE=creature TARGET_VERTS=150000 GENERATE_LODS=1 ./pipeline/stage6-blender.sh wolf_00001_.glb grey_wolf http://localhost:8000
-ASSET_TYPE=weapon ./pipeline/stage6-blender.sh sword_00001_.glb spirit_sword http://localhost:8000
+ASSET_TYPE=humanoid TARGET_VERTS=15000 GENERATE_LODS=1 GENERATE_COLLISION=1 ./pipeline/stage6-blender.sh warrior_00001_.glb dark_knight http://localhost:8000
+ASSET_TYPE=creature TARGET_VERTS=150000 GENERATE_LODS=1 GENERATE_COLLISION=1 ./pipeline/stage6-blender.sh wolf_00001_.glb grey_wolf http://localhost:8000
+ASSET_TYPE=weapon TARGET_VERTS=50000 GENERATE_LODS=1 GENERATE_COLLISION=1 ./pipeline/stage6-blender.sh sword_00001_.glb spirit_sword http://localhost:8000
 ```
+
+**REQUIRED:** Always set `ASSET_TYPE`, `TARGET_VERTS`, `GENERATE_LODS=1`, and `GENERATE_COLLISION=1` for Stage 6. Look up the correct `TARGET_VERTS` value from the `/asset-pipeline` skill's vertex targets table.
 
 ## Step-by-Step Pipeline
 

@@ -24,10 +24,10 @@ Trellis2 baked textures are preserved by default. CHORD PBR is only applied when
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ASSET_TYPE` | `creature` | Controls vertex target, scale, rigging |
-| `TARGET_VERTS` | (per type) | Override vertex target |
+| `ASSET_TYPE` | `creature` | **REQUIRED.** Controls vertex target, scale, rigging |
+| `TARGET_VERTS` | (per type) | **REQUIRED.** Always pass explicitly — see vertex targets table below |
 | `TARGET_HEIGHT` | (per type) | Override height in meters |
-| `GENERATE_LODS` | `0` | Set `1` to produce LOD1 + LOD2 |
+| `GENERATE_LODS` | `0` | **Always set `1`** to produce LOD1 + LOD2 |
 | `GENERATE_COLLISION` | `0` | Set `1` to produce convex hull collision |
 | `FORCE_PBR` | `0` | Set `1` to strip Trellis2 textures and apply fresh UV + CHORD PBR |
 | `UV_METHOD` | `smart` | `smart` for Smart UV Project, `camera` for concept-art-aligned projection |
