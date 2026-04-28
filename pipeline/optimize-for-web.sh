@@ -2,21 +2,21 @@
 # optimize-for-web.sh — Optimize GLB assets for web/desktop using gltf-transform
 #
 # Godot 4.6 compatible: NO quantize, NO WebP-in-GLB, NO Draco, NO KTX2, NO meshopt
-# Safe operations: resize textures (PNG), simplify mesh, dedup, prune
+# Safe operations: resize textures (PNG), dedup, prune
+#
+# IMPORTANT: All mesh decimation must be done in Blender BEFORE this script.
+# gltf-transform simplify destroys normals on Trellis2 meshes, causing shiny
+# artifacts. Use Blender collapse decimation (preserves UVs and normals).
 #
 # Usage:
 #   ./pipeline/optimize-for-web.sh <input.glb> [output.glb] [--quality web|desktop|source]
 #
 # Quality presets:
-#   web      (default) — 512px textures, simplify 0.25, targets <2 MB
-#   desktop  — 1024px textures, simplify 0.5, targets <5 MB
+#   web      (default) — 512px textures, targets <2 MB
+#   desktop  — 1024px textures, targets <5 MB
 #   source   — no optimization (copy as-is)
 #
-# Requirements: npx, @gltf-transform/cli (v4+), sharp (npm)
-#
-# IMPORTANT: For best results, use LOD2 output from Stage 6 as input (already
-# decimated by Blender). gltf-transform simplify cannot effectively reduce
-# raw Trellis2 meshes below ~300K verts due to triangle-soup topology.
+# Requirements: npx, @gltf-transform/cli (v4+)
 
 set -euo pipefail
 
@@ -25,7 +25,6 @@ QUALITY="${QUALITY:-web}"
 INPUT=""
 OUTPUT=""
 TEXTURE_SIZE=""
-SIMPLIFY_RATIO=""
 VERBOSE="${VERBOSE:-0}"
 
 # --- Parse args ---
@@ -39,10 +38,6 @@ while [[ $# -gt 0 ]]; do
             TEXTURE_SIZE="$2"
             shift 2
             ;;
-        --simplify-ratio)
-            SIMPLIFY_RATIO="$2"
-            shift 2
-            ;;
         --verbose|-v)
             VERBOSE=1
             shift
@@ -53,7 +48,7 @@ while [[ $# -gt 0 ]]; do
             echo "Environment variables:"
             echo "  QUALITY=web|desktop|source    Quality preset (default: web)"
             echo "  TEXTURE_SIZE=512              Override texture resize dimension"
-            echo "  SIMPLIFY_RATIO=0.25           Override simplify ratio (0.0-1.0)"
+            echo "  STRIP_METALROUGH=1            Strip metallicRoughness texture"
             echo "  VERBOSE=1                     Show gltf-transform output"
             exit 0
             ;;
@@ -97,11 +92,9 @@ fi
 case "$QUALITY" in
     web)
         TEXTURE_SIZE="${TEXTURE_SIZE:-512}"
-        SIMPLIFY_RATIO="${SIMPLIFY_RATIO:-0.25}"
         ;;
     desktop)
         TEXTURE_SIZE="${TEXTURE_SIZE:-1024}"
-        SIMPLIFY_RATIO="${SIMPLIFY_RATIO:-0.5}"
         ;;
     source)
         echo "Quality: source — copying as-is"
@@ -132,7 +125,7 @@ INPUT_SIZE=$(du -b "$INPUT" | cut -f1)
 INPUT_SIZE_H=$(du -h "$INPUT" | cut -f1)
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "Optimizing: $(basename "$INPUT") ($INPUT_SIZE_H)"
-echo "Quality:    $QUALITY (tex=${TEXTURE_SIZE}px, simplify=${SIMPLIFY_RATIO})"
+echo "Quality:    $QUALITY (tex=${TEXTURE_SIZE}px)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 TMPDIR=$(mktemp -d)
@@ -143,46 +136,40 @@ REDIR="/dev/null"
 
 CURRENT="$INPUT"
 
-# Step 1: Strip metallicRoughness texture (prevents shiny artifacts from UV distortion)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STRIP_SCRIPT="$SCRIPT_DIR/strip-metalrough.mjs"
-if [[ -f "$STRIP_SCRIPT" ]]; then
-    echo -n "  [1/4] Strip metallicRoughness... "
-    NEXT="$TMPDIR/step1_strip.glb"
-    node "$STRIP_SCRIPT" "$CURRENT" "$NEXT" > "$REDIR" 2>&1
-    STEP1_SIZE=$(du -h "$NEXT" | cut -f1)
-    echo "done ($STEP1_SIZE)"
-    CURRENT="$NEXT"
-else
-    echo "  [1/4] Strip metallicRoughness... SKIP (script not found)"
-fi
-
-# Step 2: Resize textures
-echo -n "  [2/4] Resize textures to ${TEXTURE_SIZE}px... "
-NEXT="$TMPDIR/step2_resize.glb"
+# Step 1: Resize textures
+echo -n "  [1/3] Resize textures to ${TEXTURE_SIZE}px... "
+NEXT="$TMPDIR/step1_resize.glb"
 $GLTF_CMD resize --width "$TEXTURE_SIZE" --height "$TEXTURE_SIZE" "$CURRENT" "$NEXT" > "$REDIR" 2>&1
+STEP1_SIZE=$(du -h "$NEXT" | cut -f1)
+echo "done ($STEP1_SIZE)"
+CURRENT="$NEXT"
+
+# Step 2: Dedup + Prune
+echo -n "  [2/3] Dedup + Prune... "
+NEXT="$TMPDIR/step2_dedup.glb"
+$GLTF_CMD dedup "$CURRENT" "$NEXT" > "$REDIR" 2>&1
+CURRENT="$NEXT"
+NEXT="$TMPDIR/step2_prune.glb"
+$GLTF_CMD prune "$CURRENT" "$NEXT" > "$REDIR" 2>&1
 STEP2_SIZE=$(du -h "$NEXT" | cut -f1)
 echo "done ($STEP2_SIZE)"
 CURRENT="$NEXT"
 
-# Step 3: Simplify mesh
-echo -n "  [3/4] Simplify mesh (ratio=${SIMPLIFY_RATIO})... "
-NEXT="$TMPDIR/step3_simplify.glb"
-$GLTF_CMD simplify --ratio "$SIMPLIFY_RATIO" --error 1.0 "$CURRENT" "$NEXT" > "$REDIR" 2>&1
-STEP3_SIZE=$(du -h "$NEXT" | cut -f1)
-echo "done ($STEP3_SIZE)"
-CURRENT="$NEXT"
-
-# Step 4: Dedup + Prune
-echo -n "  [4/4] Dedup + Prune... "
-NEXT="$TMPDIR/step4_dedup.glb"
-$GLTF_CMD dedup "$CURRENT" "$NEXT" > "$REDIR" 2>&1
-CURRENT="$NEXT"
-NEXT="$TMPDIR/step4_prune.glb"
-$GLTF_CMD prune "$CURRENT" "$NEXT" > "$REDIR" 2>&1
-STEP3_SIZE=$(du -h "$NEXT" | cut -f1)
-echo "done ($STEP3_SIZE)"
-CURRENT="$NEXT"
+# Step 3 (optional): Strip metallicRoughness if requested
+# Only strip if STRIP_METALROUGH=1 — preserving MR texture is preferred when
+# mesh was decimated with Blender collapse (UVs intact).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STRIP_SCRIPT="$SCRIPT_DIR/strip-metalrough.mjs"
+if [[ "${STRIP_METALROUGH:-0}" == "1" && -f "$STRIP_SCRIPT" ]]; then
+    echo -n "  [3/3] Strip metallicRoughness... "
+    NEXT="$TMPDIR/step3_strip.glb"
+    node "$STRIP_SCRIPT" "$CURRENT" "$NEXT" > "$REDIR" 2>&1
+    STEP3_SIZE=$(du -h "$NEXT" | cut -f1)
+    echo "done ($STEP3_SIZE)"
+    CURRENT="$NEXT"
+else
+    echo "  [3/3] Strip metallicRoughness... SKIP (not requested)"
+fi
 
 # Copy to output
 cp "$CURRENT" "$OUTPUT"
@@ -212,6 +199,6 @@ if [[ $OUTPUT_SIZE -le $BUDGET ]]; then
     echo "Budget:     ✅ PASS — under ${BUDGET_H} target"
 else
     echo "Budget:     ⚠️  OVER — ${OUTPUT_SIZE_H} exceeds ${BUDGET_H} target"
-    echo "            Tip: Use LOD2 as input for better mesh reduction"
+    echo "            Tip: Use Blender collapse-decimated GLB as input"
 fi
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

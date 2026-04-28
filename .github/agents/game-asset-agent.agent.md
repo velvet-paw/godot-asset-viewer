@@ -180,13 +180,13 @@ print(f'File size: {os.path.getsize(path) / (1024*1024):.1f} MB')
 
 ```bash
 # Default: web quality
-QUALITY=web ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset_name}_lod2.glb ~/assets/final_glb/{asset_name}_web.glb
+QUALITY=web ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset_name}_final.glb ~/assets/final_glb/{asset_name}_web.glb
 
 # Desktop quality
-QUALITY=desktop ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset_name}_lod2.glb ~/assets/final_glb/{asset_name}_desktop.glb
+QUALITY=desktop ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset_name}_final.glb ~/assets/final_glb/{asset_name}_desktop.glb
 ```
 
-**Input must be LOD2** (`{asset}_lod2.glb`), NOT `{asset}_final.glb`. Stage 6 generates LODs when `GENERATE_LODS=1`.
+**Input must be Stage 6 output** (Blender collapse-decimated). This script only resizes textures — mesh decimation is done by Blender in Stage 6. **Never use gltf-transform simplify** — it destroys normals on Trellis2 meshes.
 
 For comprehensive validation, invoke the **asset-validator** agent.
 

@@ -186,45 +186,47 @@ stylized hand-painted clay pot, round terracotta vessel with wide belly and narr
 
 After Stage 6, **always** run web optimization unless the user explicitly requests `source` quality.
 
+**Input must be a Blender collapse-decimated GLB** (e.g., `_final.glb` from Stage 6). Do NOT use raw Trellis2 output.
+
 ```bash
 # Default: web quality (<2 MB target)
-QUALITY=web ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_lod2.glb ~/assets/final_glb/{asset}_web.glb
+QUALITY=web ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_final.glb ~/assets/final_glb/{asset}_web.glb
 
 # Desktop quality (<5 MB target)
-QUALITY=desktop ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_lod2.glb ~/assets/final_glb/{asset}_desktop.glb
+QUALITY=desktop ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_final.glb ~/assets/final_glb/{asset}_desktop.glb
 ```
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `QUALITY` | `web` | **REQUIRED.** `web` (512px, simplify 0.25), `desktop` (1024px, simplify 0.5), `source` (no-op) |
+| `QUALITY` | `web` | **REQUIRED.** `web` (512px textures), `desktop` (1024px textures), `source` (no-op) |
 | `TEXTURE_SIZE` | (per preset) | Override texture resize dimension |
-| `SIMPLIFY_RATIO` | (per preset) | Override simplify ratio (0.0–1.0) |
+| `STRIP_METALROUGH` | `0` | Set to `1` to strip metallicRoughness texture (saves ~1 MB) |
 
 ### Quality Presets
 
-| Preset | Textures | Mesh Simplify | Target Size | Use Case |
-|--------|----------|---------------|-------------|----------|
-| `web` (default) | 512×512 PNG | 0.25 ratio | <2 MB | Browser games, mobile |
-| `desktop` | 1024×1024 PNG | 0.5 ratio | <5 MB | Desktop games |
+| Preset | Textures | Mesh | Target Size | Use Case |
+|--------|----------|------|-------------|----------|
+| `web` (default) | 512×512 PNG | As-is (decimated by Blender) | <2 MB | Browser games, mobile |
+| `desktop` | 1024×1024 PNG | As-is (decimated by Blender) | <5 MB | Desktop games |
 | `source` | Original | None | No limit | Archival, highest quality |
 
-The pipeline also **strips the metallicRoughness texture** (step 1) and sets flat scalar values (metallic=0, roughness=0.9). This prevents shiny brown artifacts caused by UV distortion during LOD decimation.
+Stripping metallicRoughness (`STRIP_METALROUGH=1`) is optional. With Blender collapse decimation, UVs are preserved and metallicRoughness renders correctly.
 
 ### Godot 4.6 Compatibility (CRITICAL)
 
 These operations **break** Godot 4.6 rendering — never use them:
 - ❌ `gltf-transform quantize` — produces blank renders
 - ❌ `gltf-transform webp` — WebP textures in GLB not supported
+- ❌ `gltf-transform simplify` — **destroys normals on Trellis2 meshes**, causing shiny faceted artifacts. All mesh decimation MUST be done in Blender.
 - ❌ Draco compression, KTX2/Basis, EXT_meshopt_compression
 
 These operations are **safe** and used by optimize-for-web.sh:
 - ✅ `gltf-transform resize` — PNG texture resizing
-- ✅ `gltf-transform simplify` — mesh simplification (meshoptimizer)
 - ✅ `gltf-transform dedup` / `prune` — cleanup
 
 ### Input Selection
 
-**Always use LOD2** as input to optimize-for-web.sh (not the full-res _final.glb). Raw Trellis2 meshes have triangle-soup topology that resists gltf-transform simplify — it cannot reduce below ~300K verts regardless of ratio. LOD2 has already been decimated by Blender and simplifies effectively.
+**Input must be Stage 6 output** (already decimated by Blender collapse decimation). The optimize-for-web.sh script only resizes textures and cleans up — it does NOT simplify meshes. Mesh decimation is Blender's job (Stage 6) because gltf-transform simplify destroys vertex normals and UV quality on Trellis2 triangle-soup meshes.
 
 ## Reference Assets
 
