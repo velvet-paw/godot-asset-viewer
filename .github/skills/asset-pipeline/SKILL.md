@@ -182,6 +182,48 @@ stylized hand-painted clay pot, round terracotta vessel with wide belly and narr
 - ❌ Humanoids with merged arms, capes, or wall-like silhouettes
 - ❌ Uniform white/grey creature concepts — groove artifacts visible
 
+## Stage 7 — Web Optimization (Default)
+
+After Stage 6, **always** run web optimization unless the user explicitly requests `source` quality.
+
+```bash
+# Default: web quality (<2 MB target)
+QUALITY=web ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_lod2.glb ~/assets/final_glb/{asset}_web.glb
+
+# Desktop quality (<5 MB target)
+QUALITY=desktop ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_lod2.glb ~/assets/final_glb/{asset}_desktop.glb
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `QUALITY` | `web` | **REQUIRED.** `web` (512px, simplify 0.25), `desktop` (1024px, simplify 0.5), `source` (no-op) |
+| `TEXTURE_SIZE` | (per preset) | Override texture resize dimension |
+| `SIMPLIFY_RATIO` | (per preset) | Override simplify ratio (0.0–1.0) |
+
+### Quality Presets
+
+| Preset | Textures | Mesh Simplify | Target Size | Use Case |
+|--------|----------|---------------|-------------|----------|
+| `web` (default) | 512×512 PNG | 0.25 ratio | <2 MB | Browser games, mobile |
+| `desktop` | 1024×1024 PNG | 0.5 ratio | <5 MB | Desktop games |
+| `source` | Original | None | No limit | Archival, highest quality |
+
+### Godot 4.6 Compatibility (CRITICAL)
+
+These operations **break** Godot 4.6 rendering — never use them:
+- ❌ `gltf-transform quantize` — produces blank renders
+- ❌ `gltf-transform webp` — WebP textures in GLB not supported
+- ❌ Draco compression, KTX2/Basis, EXT_meshopt_compression
+
+These operations are **safe** and used by optimize-for-web.sh:
+- ✅ `gltf-transform resize` — PNG texture resizing
+- ✅ `gltf-transform simplify` — mesh simplification (meshoptimizer)
+- ✅ `gltf-transform dedup` / `prune` — cleanup
+
+### Input Selection
+
+**Always use LOD2** as input to optimize-for-web.sh (not the full-res _final.glb). Raw Trellis2 meshes have triangle-soup topology that resists gltf-transform simplify — it cannot reduce below ~300K verts regardless of ratio. LOD2 has already been decimated by Blender and simplifies effectively.
+
 ## Reference Assets
 
 | Asset | Type | Verts | Size | GLB Path | Screenshot |
@@ -197,6 +239,6 @@ Specialized agent definitions in `.github/agents/`:
 | Agent | Role |
 |-------|------|
 | `asset-orchestrator` | Generate → validate → remediate loop (≤5 attempts) |
-| `game-asset-agent` | End-to-end pipeline execution (Stages 1–6) |
-| `asset-validator` | Quality checks: geometry, UVs, materials, file size |
+| `game-asset-agent` | End-to-end pipeline execution (Stages 1–7) |
+| `asset-validator` | Quality checks: geometry, UVs, materials, file size, web-readiness |
 | `modify-game-asset` | Modify existing GLBs via Blender MCP |

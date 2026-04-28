@@ -157,6 +157,27 @@ Include the Godot screenshot path in the validation report under `visual_checks.
 
 **Scoring:** Start at 100. Deduct per issue: critical = -30, warning = -10, info = 0.
 
+### Web-Readiness Check
+
+If a `{asset}_web.glb` exists, validate its file size:
+
+```bash
+WEB_GLB=~/assets/final_glb/{asset_name}_web.glb
+if [[ -f "$WEB_GLB" ]]; then
+    SIZE=$(stat --printf="%s" "$WEB_GLB")
+    SIZE_MB=$(echo "scale=1; $SIZE / 1048576" | bc)
+    if (( SIZE <= 2097152 )); then
+        echo "Web GLB: ${SIZE_MB} MB ✅ (under 2 MB)"
+    elif (( SIZE <= 5242880 )); then
+        echo "Web GLB: ${SIZE_MB} MB ⚠️ (under 5 MB but over 2 MB web target)"
+    else
+        echo "Web GLB: ${SIZE_MB} MB ❌ (over 5 MB — not web-ready)"
+    fi
+fi
+```
+
+Also verify the web GLB renders correctly in Godot — load it in the AssetViewer and take a screenshot.
+
 ## Report Output
 
 Write **two outputs** to `~/assets/validation_reports/`. Use `/asset-validation` skill for the JSON schema and Markdown template.

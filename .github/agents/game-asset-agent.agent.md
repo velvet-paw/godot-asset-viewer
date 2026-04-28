@@ -174,6 +174,20 @@ print(f'File size: {os.path.getsize(path) / (1024*1024):.1f} MB')
 "
 ```
 
+### 7. Stage 7 — Web Optimization (Default)
+
+**Always run** after Stage 6 unless user requests `source` quality. See `/asset-pipeline` skill for presets.
+
+```bash
+# Default: web quality
+QUALITY=web ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset_name}_lod2.glb ~/assets/final_glb/{asset_name}_web.glb
+
+# Desktop quality
+QUALITY=desktop ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset_name}_lod2.glb ~/assets/final_glb/{asset_name}_desktop.glb
+```
+
+**Input must be LOD2** (`{asset}_lod2.glb`), NOT `{asset}_final.glb`. Stage 6 generates LODs when `GENERATE_LODS=1`.
+
 For comprehensive validation, invoke the **asset-validator** agent.
 
 ## Important Rules

@@ -55,7 +55,8 @@ Invoke `game-asset-agent` with a full prompt including:
 - Asset name, ASSET_TYPE (humanoid|creature|prop|weapon)
 - Required prompt keywords (see `/asset-pipeline` skill for prompting guidelines)
 - Stage 6 env vars: `ASSET_TYPE={type} TARGET_VERTS={target} GENERATE_LODS=1 GENERATE_COLLISION=1`
-- Expected output: `~/assets/final_glb/{asset_name}_final.glb`
+- Quality preset: `QUALITY=web` (default) or user-specified quality
+- Expected outputs: `~/assets/final_glb/{asset_name}_final.glb` (full res) + `{asset_name}_web.glb` (web optimized)
 
 **IMPORTANT for creatures:** Concept art MUST have visible color variation. Uniform white/grey exposes Trellis2 groove artifacts.
 
