@@ -62,6 +62,42 @@ Use `/blender-operations` skill for the full geometry removal pattern:
 - Too conservative leaves remnants
 - Always render after deletion to verify
 
+#### Shadow/Occlusion Mesh Removal
+
+Trellis2 often generates Icosphere shells or flat shadow discs alongside the primary mesh. These cause blotchy overlay artifacts that appear/disappear during animation.
+
+**Detection:**
+```python
+import bpy
+
+# After import, list all mesh objects
+meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
+primary = max(meshes, key=lambda o: len(o.data.vertices))
+shadows = [o for o in meshes if o != primary]
+print(f"Primary: {primary.name} ({len(primary.data.vertices)} verts)")
+for s in shadows:
+    print(f"  Shadow: {s.name} ({len(s.data.vertices)} verts)")
+```
+
+**Removal:**
+```python
+import bpy
+
+# Delete all non-primary mesh objects
+meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
+primary = max(meshes, key=lambda o: len(o.data.vertices))
+for obj in meshes:
+    if obj != primary:
+        bpy.data.objects.remove(obj, do_unlink=True)
+        print(f"Removed shadow object: {obj.name}")
+```
+
+**Signs of shadow meshes:**
+- Icospheres (42–80 verts) with bounds larger than the primary mesh
+- Flat disc geometry at the model's base (Z ≈ minimum)
+- Small meshes (<500 verts) that aren't part of the character
+- Visual symptom: blotchy semi-transparent overlay that shifts with camera/animation
+
 #### Recolor a Region (e.g., change hair/eye color)
 
 Use `/blender-operations` skill for the two-step recolor pattern:

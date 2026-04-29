@@ -213,6 +213,8 @@ for img in bpy.data.images:
 | `lod_over_budget` | warning | `redo_stage6` | LOD verts too high |
 | `missing_lods` | info | `info_only` | No LOD files generated |
 | `uniform_coloring` | critical | `regenerate_concept` | Creature: no color variation, groove artifacts visible |
+| `shadow_geometry` | critical | `remove_shadows` | Icosphere/disc shadow meshes enveloping the model |
+| `normal_splits` | warning | `smooth_normals` | >5% positions with >120° normal splits at UV seams |
 
 ## Report Templates
 
@@ -274,6 +276,7 @@ for img in bpy.data.images:
 
 | Symptom | Cause | Severity |
 |---------|-------|----------|
+| Blotchy overlay that shifts with camera/animation | Icosphere shadow shells enveloping model | FAIL |
 | Near-black render | Smart UV destroyed Trellis2 baked UVs | FAIL |
 | Z-depth < 0.05 | Front-view concept → bas-relief | WARN |
 | Groove artifacts (with color variation) | Trellis2 baked texture limitation | PASS (creature) |
@@ -281,6 +284,7 @@ for img in bpy.data.images:
 | 130K+ verts after decimation | Organic shape resists decimation | PASS (creature), WARN (other) |
 | Missing textures | GLTF import lost references | FAIL |
 | Dark/blue glossy appearance | CHORD PBR roughness bleeding through | FAIL |
+| Patchy shading at UV seam boundaries | Split vertex normals from decimation | WARN |
 
 ## Notes
 
@@ -289,3 +293,65 @@ for img in bpy.data.images:
 - PBR maps in `~/assets/pbr_maps/` may not be applied if Trellis2 textures present
 - Creature 100K–150K verts is expected — do NOT flag as over-budget
 - Creature groove artifacts with good color variation = PASS
+
+## Shadow Geometry Detection
+
+Trellis2 often generates extra Icosphere meshes or flat shadow discs alongside the primary
+model. These cause a blotchy semi-transparent overlay that appears/disappears during animation.
+
+### Detection via trimesh
+
+```python
+import trimesh, os
+
+path = os.path.expanduser(f"~/assets/final_glb/{asset_name}_final.glb")
+scene = trimesh.load(path, force="scene")
+geometries = list(scene.geometry.items())
+
+if len(geometries) > 1:
+    primary = max(geometries, key=lambda g: len(g[1].vertices))
+    for name, geom in geometries:
+        if name == primary[0]:
+            continue
+        verts = len(geom.vertices)
+        envelops = all(
+            geom.bounds[0][i] <= primary[1].bounds[0][i] and
+            geom.bounds[1][i] >= primary[1].bounds[1][i]
+            for i in range(3)
+        )
+        print(f"⚠️ Shadow mesh: {name} ({verts} verts, envelops={envelops})")
+```
+
+### Detection via Blender MCP
+
+```python
+import bpy
+
+meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
+primary = max(meshes, key=lambda o: len(o.data.vertices))
+for obj in meshes:
+    if obj != primary:
+        print(f"Shadow: {obj.name} ({len(obj.data.vertices)} verts)")
+```
+
+### Removal via Blender MCP
+
+```python
+import bpy
+
+meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
+primary = max(meshes, key=lambda o: len(o.data.vertices))
+for obj in meshes:
+    if obj != primary:
+        bpy.data.objects.remove(obj, do_unlink=True)
+```
+
+### Signs of Shadow Geometry
+
+| Sign | Description |
+|------|-------------|
+| Multiple geometry objects | GLB has >1 mesh (should be 1 for game assets) |
+| Icosphere (42–80 verts) | Trellis2 shadow shell, bounds envelop primary mesh |
+| Flat disc at base | Ground shadow, verts clustered at Y-minimum |
+| Blotchy overlay | Semi-transparent coating that shifts with animation |
+| Small secondary meshes | <500 verts, not part of the character |

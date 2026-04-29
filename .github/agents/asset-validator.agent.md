@@ -133,6 +133,8 @@ When a gate returns FAIL, produce a structured fix instruction block for the orc
 | `file_size` | WARN | Lower decimation + textures | `decimation_target` × 0.7, `texture_size=1024` |
 | `lod_check` | WARN | Re-run LOD generation | Lower LOD target vertex counts |
 | `double_sided_missing` | WARN | Re-run Stage 6c | Set `doubleSided=true` on all materials |
+| `shadow_geometry` | FAIL | Re-run Stage 6b | Remove Icosphere/shadow objects before export |
+| `normal_consistency` | WARN | Re-run Stage 6b | Run cross-seam normal averaging |
 
 ### Gate 1 (Concept) Failures
 

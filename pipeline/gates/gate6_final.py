@@ -585,6 +585,76 @@ def check_lods(report: GateReport, path: str, main_verts: int):
         )
 
 
+def check_shadow_geometry(report: GateReport, path: str):
+    """Check for shadow/occlusion meshes (Icospheres, flat discs) that envelop the model.
+
+    Trellis2 sometimes generates Icosphere shells or flat ground-shadow discs
+    alongside the primary mesh. These cause blotchy overlay artifacts in-game.
+    """
+    scene = trimesh.load(path, force="scene")
+    if not isinstance(scene, trimesh.Scene) or not scene.geometry:
+        report.add_check(
+            name="shadow_geometry",
+            status=STATUS_PASS,
+            expected="single primary mesh",
+            actual="no scene geometry",
+            message="No scene to check",
+        )
+        return
+
+    geometries = list(scene.geometry.items())
+    if len(geometries) <= 1:
+        # Single mesh — check for enveloping sub-geometry is not needed
+        report.add_check(
+            name="shadow_geometry",
+            status=STATUS_PASS,
+            expected="single primary mesh",
+            actual=f"1 geometry ({len(geometries[0][1].vertices)} verts)",
+            message="No shadow geometry detected",
+        )
+        return
+
+    # Multiple geometries — flag non-primary meshes as potential shadows
+    # Primary mesh is the one with the most vertices
+    sorted_geoms = sorted(geometries, key=lambda g: len(g[1].vertices), reverse=True)
+    primary_name, primary_mesh = sorted_geoms[0]
+    shadow_meshes = []
+
+    for name, geom in sorted_geoms[1:]:
+        # Heuristic: shadow meshes are small (<500 verts) or envelop the primary
+        verts = len(geom.vertices)
+        bounds = geom.bounds
+        primary_bounds = primary_mesh.bounds
+        # Check if this mesh envelops the primary (larger bounding box on all axes)
+        envelops = all(
+            bounds[0][i] <= primary_bounds[0][i] and bounds[1][i] >= primary_bounds[1][i]
+            for i in range(3)
+        )
+        is_small = verts < 500
+        if envelops or is_small:
+            shadow_meshes.append({"name": name, "verts": verts, "envelops": envelops})
+
+    if shadow_meshes:
+        names = [s["name"] for s in shadow_meshes]
+        report.add_check(
+            name="shadow_geometry",
+            status=STATUS_FAIL,
+            expected="single primary mesh",
+            actual=f"{len(shadow_meshes)} shadow mesh(es): {', '.join(names)}",
+            message="Shadow/occlusion geometry detected — causes blotchy overlay artifacts. "
+            "Remove via Blender: delete non-primary objects before export.",
+            details={"shadow_meshes": shadow_meshes, "primary": primary_name},
+        )
+    else:
+        report.add_check(
+            name="shadow_geometry",
+            status=STATUS_PASS,
+            expected="single primary mesh",
+            actual=f"{len(geometries)} geometries, none are shadows",
+            message="No shadow geometry detected",
+        )
+
+
 def check_normal_consistency(report: GateReport, path: str):
     """Check for split normals at shared vertex positions (UV seam artifacts).
 
@@ -694,6 +764,7 @@ def main():
     check_scale(report, mesh, thresholds)
     check_file_size(report, glb_path, thresholds)
     check_lods(report, glb_path, len(mesh.vertices))
+    check_shadow_geometry(report, glb_path)
     check_normal_consistency(report, glb_path)
 
     finish(report, "stage6-final", args)
