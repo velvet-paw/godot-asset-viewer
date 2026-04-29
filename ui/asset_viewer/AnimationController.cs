@@ -103,8 +103,7 @@ namespace TeaLeaves.UI
 
                 if (pose.PositionOffset.HasValue)
                 {
-                    var restPos = _skeleton.GetBoneRest(boneIdx).Origin;
-                    _skeleton.SetBonePosePosition(boneIdx, restPos + pose.PositionOffset.Value);
+                    _skeleton.SetBonePosePosition(boneIdx, pose.PositionOffset.Value);
                 }
             }
         }
@@ -120,8 +119,7 @@ namespace TeaLeaves.UI
             {
                 int boneIdx = kvp.Value;
                 _skeleton.SetBonePoseRotation(boneIdx, Quaternion.Identity);
-                var restPos = _skeleton.GetBoneRest(boneIdx).Origin;
-                _skeleton.SetBonePosePosition(boneIdx, restPos);
+                _skeleton.SetBonePosePosition(boneIdx, Vector3.Zero);
             }
         }
 
