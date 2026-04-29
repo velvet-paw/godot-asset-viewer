@@ -57,18 +57,18 @@ Both containers share `~/assets/` via volume mounts.
 Stage 6 examples (**always** pass `ASSET_TYPE` and `TARGET_VERTS`):
 ```bash
 ASSET_TYPE=humanoid TARGET_VERTS=15000 GENERATE_LODS=1 GENERATE_COLLISION=1 ./pipeline/stage6-blender.sh warrior_00001_.glb dark_knight http://localhost:8000
-ASSET_TYPE=creature TARGET_VERTS=150000 GENERATE_LODS=1 GENERATE_COLLISION=1 ./pipeline/stage6-blender.sh wolf_00001_.glb grey_wolf http://localhost:8000
-ASSET_TYPE=weapon TARGET_VERTS=50000 GENERATE_LODS=1 GENERATE_COLLISION=1 ./pipeline/stage6-blender.sh sword_00001_.glb spirit_sword http://localhost:8000
+ASSET_TYPE=creature TARGET_VERTS=25000 GENERATE_LODS=1 GENERATE_COLLISION=1 ./pipeline/stage6-blender.sh wolf_00001_.glb grey_wolf http://localhost:8000
+ASSET_TYPE=weapon TARGET_VERTS=15000 GENERATE_LODS=1 GENERATE_COLLISION=1 ./pipeline/stage6-blender.sh sword_00001_.glb spirit_sword http://localhost:8000
 ```
 
-**REQUIRED:** Always set `ASSET_TYPE`, `TARGET_VERTS`, `GENERATE_LODS=1`, and `GENERATE_COLLISION=1` for Stage 6. Look up the correct `TARGET_VERTS` value from the `/asset-pipeline` skill's vertex targets table.
+**REQUIRED:** Always set `ASSET_TYPE`, `TARGET_VERTS`, `GENERATE_LODS=1`, and `GENERATE_COLLISION=1` for Stage 6. Set `TARGET_VERTS` to match Trellis2's `decimation_target` — Stage 6 should NOT decimate below what Trellis2 generated.
 
 ## Step-by-Step Pipeline
 
 ### 1. Stage 1 — Concept Art (Flux.1 Dev)
 
 ```bash
-./pipeline/stage1-concept.sh "a squirrel, game asset, centered, orthographic front view, flat lighting, no shadows, neutral grey background"
+./pipeline/stage1-concept.sh "a squirrel, game asset, centered, orthographic front view, flat lighting, no shadows, no ground shadow, no drop shadow, neutral grey background"
 ```
 
 Output: `~/assets/concepts/concept_NNNNN_.png`
@@ -105,7 +105,7 @@ Upload the concept image first — `LoadImage` only searches ComfyUI's `input/` 
 
 Output: `~/assets/raw_3d/squirrel_NNNNN_.glb`
 
-> The script creates `enhanced_mask_NNNNN_.png` (concept RGB + glow-preserving alpha) by combining BiRefNet's mask with a luminance-difference mask. An `InvertMask` node flips alpha for Trellis2 conditioning. Output: ~340-490K verts, ~28MB with baked 2× 2048×2048 textures.
+> The script creates `enhanced_mask_NNNNN_.png` (concept RGB + glow-preserving alpha) by combining BiRefNet's mask with a luminance-difference mask. An `InvertMask` node flips alpha for Trellis2 conditioning. Default output: ~25K verts, ~3MB with baked 2× 1024×1024 textures. Override `decimation_target` in the workflow for different vertex counts.
 
 ### 4. Stage 4-5 — PBR (CHORD) — Usually Skipped
 
@@ -127,7 +127,7 @@ For direct Blender MCP scripting, see `/blender-operations` skill.
 
 Stage 6 handles conditional PBR: if Trellis2 baked textures exist, skip UV unwrap and CHORD PBR entirely — only decimate + rig + export. Override with `FORCE_PBR=1`.
 
-> **Known limitation:** Trellis2 meshes hit a collapse-decimate floor at ~26K verts (LOD0). LOD1/LOD2 use voxel remesh at LOD distances.
+> **Important:** Stage 6 `TARGET_VERTS` should match Trellis2's `decimation_target`. Post-bake decimation destroys UV fidelity — always control vertex count at the Trellis2 level.
 
 ## ComfyUI API Helper
 
@@ -193,6 +193,8 @@ For comprehensive validation, invoke the **asset-validator** agent.
 13. **Trellis2 timeout: 900s minimum** — organic shapes take 2-9 min
 14. **Trellis2 default params are optimal** — 12 steps, 7.5 guidance (higher → CUDA OOM)
 15. **Creature concepts need color variation** — uniform white/grey → groove artifacts
+16. **Concept prompts must include `no shadows, no ground shadow, no drop shadow`** — shadows in concept art bake into Trellis2 textures as dark patches on the 3D model
+17. **Control vertex count at Trellis2 level** — set `decimation_target` in the workflow, NOT via Stage 6 decimation
 
 ## Error Handling
 

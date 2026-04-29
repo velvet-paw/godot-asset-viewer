@@ -160,19 +160,28 @@ With `remesh_project=0.9`, the mesh topology is better and decimation is cleaner
 
 ---
 
-## Future Optimization Directions
+## The Breakthrough: Low-Poly at Source
 
-If file size becomes a blocker, these approaches haven't been tried:
+**The key insight:** Instead of generating at high vertex counts and decimating post-bake, set `decimation_target` in Trellis2's ExportGLB node to the desired vertex count. Trellis2 bakes textures ONTO the decimated mesh, so UV fidelity is preserved at any target.
 
-1. **Smaller source textures (1024px)** — Configure Trellis2 `texture_size=1024` in the workflow. Trades quality at generation time rather than post-processing. Untested.
+| Approach | Verts | Size | Quality |
+|----------|-------|------|---------|
+| Post-bake decimation (150K → 15K) | 15K | 9.4 MB | ❌ Destroyed UVs, texture bleed |
+| Low-poly at source (decimation_target=15K) | 12K | 2.7 MB | ✅ Clean textures, no artifacts |
 
-2. **UV atlas repacking** — After decimation, reproject textures onto a new UV layout that shares UV space efficiently. Requires a bake step in Blender. Would enable standard texture compression to work properly.
+**Why it works:** Trellis2's CuMesh remesher runs decimation BEFORE texture baking. The texture atlas is created for the target mesh, so each triangle gets proper UV coverage regardless of vertex count. Post-bake decimation fails because it tries to merge UV islands that were baked for a different topology.
 
-3. **Multiple LODs in Godot** — Ship the 150K source but let Godot's LOD system handle runtime reduction. File stays large but runtime performance is managed. Requires LOD generation in Stage 6 (already supported via `GENERATE_LODS=1`).
+**New defaults:** `decimation_target=25000`, `texture_size=1024`. This produces ~3 MB assets with good visual quality.
 
-4. **Godot .res format** — Import GLB once, save as `.res` with Godot's native compression. Larger on disk but faster to load at runtime.
+---
 
-5. **Separate mesh + texture files** — Instead of one GLB, ship a low-poly mesh with a separate high-res texture atlas. Requires pipeline changes but enables independent optimization of mesh vs texture.
+## Remaining Optimization Directions
+
+1. **UV atlas repacking** — After generation, reproject textures onto a shared UV layout. Would enable JPEG compression without per-triangle artifacts.
+
+2. **Godot .res format** — Import GLB once, save as `.res` with Godot's native compression. Larger on disk but faster to load at runtime.
+
+3. **Even lower vertex targets** — `decimation_target=10000` or lower hasn't been tested. May still look acceptable for distant/small objects.
 
 ---
 
@@ -188,3 +197,5 @@ If file size becomes a blocker, these approaches haven't been tried:
 | 2026-04-28 PM | Moved MR strip into Stage 6 Blender | Eliminated MR artifacts at source |
 | 2026-04-28 PM | Generated source/desktop/web final | Source great, desktop/web still degraded |
 | 2026-04-28 PM | **Decision: ship source quality only** | Quality > file size for now |
+| 2026-04-28 PM | **Breakthrough: low-poly at source** | Set Trellis2 `decimation_target=15000` — textures baked onto 15K mesh. 2.7 MB, no artifacts. 90% smaller than 150K source. |
+| 2026-04-28 PM | Updated default to `decimation_target=25000` | Best balance of quality and file size (~3 MB). Texture size 1024px. |

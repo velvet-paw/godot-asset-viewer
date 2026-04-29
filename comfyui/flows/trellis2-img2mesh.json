@@ -58,8 +58,8 @@
     "class_type": "Trellis2ExportGLB",
     "inputs": {
       "voxelgrid_path": ["6", 1],
-      "decimation_target": 500000,
-      "texture_size": 2048,
+      "decimation_target": 25000,
+      "texture_size": 1024,
       "remesh": true,
       "remesh_band": 2.0,
       "remesh_project": 0.9,
