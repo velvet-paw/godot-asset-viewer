@@ -47,6 +47,16 @@ namespace TeaLeaves.UI
         // Audio preview
         private AudioStreamPlayer? _audioPlayer;
 
+        // Animation preview
+        private HBoxContainer _animationControls = null!;
+        private OptionButton _animSelector = null!;
+        private Button _playPauseButton = null!;
+        private Button _stopButton = null!;
+        private HSlider _speedSlider = null!;
+        private Label _speedValue = null!;
+        private Button _exportButton = null!;
+        private AnimationController? _animController;
+
         // Camera controller
         private OrbitCamera _orbitCamera = new();
 
@@ -119,6 +129,22 @@ namespace TeaLeaves.UI
             _panUp.Pressed += () => { _orbitCamera.Pan(0, PanStep); ApplyCameraOrbit(); };
             _panDown.Pressed += () => { _orbitCamera.Pan(0, -PanStep); ApplyCameraOrbit(); };
             _resetCamera.Pressed += () => { _orbitCamera.Reset(); ApplyCameraOrbit(); };
+
+            // Animation controls
+            var ac = "VBox/HSplit/RightSplit/AnimationControls/";
+            _animationControls = GetNode<HBoxContainer>("VBox/HSplit/RightSplit/AnimationControls");
+            _animSelector = GetNode<OptionButton>(ac + "AnimSelector");
+            _playPauseButton = GetNode<Button>(ac + "PlayPauseButton");
+            _stopButton = GetNode<Button>(ac + "StopButton");
+            _speedSlider = GetNode<HSlider>(ac + "SpeedSlider");
+            _speedValue = GetNode<Label>(ac + "SpeedValue");
+            _exportButton = GetNode<Button>(ac + "ExportButton");
+
+            _playPauseButton.Pressed += OnPlayPausePressed;
+            _stopButton.Pressed += OnStopPressed;
+            _animSelector.ItemSelected += OnAnimSelected;
+            _speedSlider.ValueChanged += OnSpeedChanged;
+            _exportButton.Pressed += OnExportPressed;
 
             Setup3DPreview();
             RegisterDevToolsCommands();
@@ -468,11 +494,14 @@ namespace TeaLeaves.UI
         private void ClearPreview()
         {
             if (_previewRoot == null) return;
+            StopAnimation();
+            _animController = null;
             foreach (var child in _previewRoot.GetChildren())
             {
                 child.QueueFree();
             }
             _audioPlayer?.Stop();
+            _animationControls.Visible = false;
         }
 
         private void ShowTexturePreview(Texture2D tex)
@@ -513,6 +542,13 @@ namespace TeaLeaves.UI
                 {
                     SetCameraOrbit(0, -20, 3f, Vector3.Zero);
                 }
+
+                // Check for skeleton and set up animation controls
+                var skeleton = FindSkeleton3D(instance);
+                if (skeleton != null)
+                {
+                    SetupAnimationController(skeleton);
+                }
             }
             catch (Exception e)
             {
@@ -550,6 +586,137 @@ namespace TeaLeaves.UI
         {
             // No 3D preview for raw shaders; metadata panel shows code snippet
         }
+
+        #region Animation Preview
+
+        private static Skeleton3D? FindSkeleton3D(Node root)
+        {
+            if (root is Skeleton3D skel) return skel;
+            foreach (var child in root.GetChildren())
+            {
+                var found = FindSkeleton3D(child);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private void SetupAnimationController(Skeleton3D skeleton)
+        {
+            _animController = new AnimationController();
+            _animController.Name = "AnimController";
+            skeleton.AddChild(_animController);
+
+            if (!_animController.Initialize(skeleton))
+            {
+                _animController.QueueFree();
+                _animController = null;
+                return;
+            }
+
+            // Populate animation selector
+            _animSelector.Clear();
+            var animations = _animController.GetAvailableAnimations();
+            for (int i = 0; i < animations.Length; i++)
+            {
+                _animSelector.AddItem(animations[i].ToString(), i);
+            }
+
+            _animationControls.Visible = true;
+            _playPauseButton.Text = "▶";
+            _speedSlider.Value = 1.0;
+            _speedValue.Text = "1.0x";
+        }
+
+        private void OnPlayPausePressed()
+        {
+            if (_animController == null) return;
+
+            if (_animController.IsPlaying)
+            {
+                _animController.Pause();
+                _playPauseButton.Text = "▶";
+            }
+            else
+            {
+                int selectedIdx = _animSelector.Selected;
+                if (selectedIdx < 0) return;
+
+                var animations = _animController.GetAvailableAnimations();
+                if (selectedIdx >= animations.Length) return;
+
+                if (_animController.CurrentAnimation == animations[selectedIdx])
+                {
+                    _animController.Resume();
+                }
+                else
+                {
+                    _animController.Play(animations[selectedIdx]);
+                }
+                _playPauseButton.Text = "⏸";
+            }
+        }
+
+        private void OnStopPressed()
+        {
+            StopAnimation();
+        }
+
+        private void StopAnimation()
+        {
+            if (_animController == null) return;
+            _animController.Stop();
+            _playPauseButton.Text = "▶";
+        }
+
+        private void OnAnimSelected(long index)
+        {
+            if (_animController == null || !_animController.IsPlaying) return;
+
+            var animations = _animController.GetAvailableAnimations();
+            if (index >= 0 && index < animations.Length)
+            {
+                _animController.Play(animations[(int)index]);
+            }
+        }
+
+        private void OnSpeedChanged(double value)
+        {
+            _speedValue.Text = $"{value:F1}x";
+            _animController?.SetSpeed((float)value);
+        }
+
+        private void OnExportPressed()
+        {
+            if (_animController == null || _currentAsset == null) return;
+
+            int selectedIdx = _animSelector.Selected;
+            if (selectedIdx < 0) return;
+
+            var animations = _animController.GetAvailableAnimations();
+            if (selectedIdx >= animations.Length) return;
+
+            var animType = animations[selectedIdx];
+            var baseName = _currentAsset.Path.GetFile().GetBaseName();
+            var exportPath = $"res://data/{baseName}_{animType.ToString().ToLowerInvariant()}.tres";
+
+            var err = AnimationExporter.SaveToFile(
+                _animController.SkeletonType,
+                animType,
+                exportPath);
+
+            if (err == Error.Ok)
+            {
+                GD.Print($"AssetViewer: Exported animation to {exportPath}");
+                _metaPanel.Text += $"\n[color=green]Exported: {exportPath}[/color]";
+            }
+            else
+            {
+                GD.PushError($"AssetViewer: Failed to export animation: {err}");
+                _metaPanel.Text += $"\n[color=red]Export failed: {err}[/color]";
+            }
+        }
+
+        #endregion
 
         private static Aabb CalculateNode3DAabb(Node3D root)
         {
@@ -735,6 +902,13 @@ namespace TeaLeaves.UI
                 }
             }
 
+            if (_animController != null)
+            {
+                text += $"\n[b]Skeleton:[/b] {_animController.SkeletonType}\n";
+                var anims = _animController.GetAvailableAnimations();
+                text += $"Animations: {string.Join(", ", anims)}\n";
+            }
+
             _metaPanel.Text = text;
         }
 
@@ -803,6 +977,7 @@ namespace TeaLeaves.UI
             devtools.RegisterHandler("asset_viewer_audio", CmdAudio);
             devtools.RegisterHandler("asset_viewer_get_meta", CmdGetMeta);
             devtools.RegisterHandler("asset_viewer_validate", CmdValidate);
+            devtools.RegisterHandler("asset_viewer_animation", CmdAnimation);
         }
 
         private CommandResult CmdList(JsonElement args)
@@ -1080,6 +1255,79 @@ namespace TeaLeaves.UI
             return new CommandResult(allValid,
                 allValid ? $"All {scanned} assets valid" : $"{issues.Count} issues found in {scanned} assets",
                 new { scanned, issueCount = issues.Count, issues });
+        }
+
+        private CommandResult CmdAnimation(JsonElement args)
+        {
+            string action = "list";
+            if (args.TryGetProperty("action", out var actionProp))
+                action = actionProp.GetString() ?? "list";
+
+            if (_animController == null)
+            {
+                return new CommandResult(false, "No skeleton detected in current asset", null);
+            }
+
+            switch (action)
+            {
+                case "list":
+                    var anims = _animController.GetAvailableAnimations();
+                    return new CommandResult(true, $"{anims.Length} animations available",
+                        new { skeletonType = _animController.SkeletonType.ToString(),
+                              animations = System.Array.ConvertAll(anims, a => a.ToString()),
+                              playing = _animController.IsPlaying,
+                              current = _animController.CurrentAnimation.ToString(),
+                              speed = _animController.Speed });
+
+                case "play":
+                    if (args.TryGetProperty("type", out var typeProp))
+                    {
+                        string typeStr = typeProp.GetString() ?? "Walk";
+                        if (System.Enum.TryParse<AnimationType>(typeStr, true, out var animType))
+                        {
+                            _animController.Play(animType);
+                            // Update UI
+                            var available = _animController.GetAvailableAnimations();
+                            for (int i = 0; i < available.Length; i++)
+                            {
+                                if (available[i] == animType)
+                                {
+                                    _animSelector.Selected = i;
+                                    break;
+                                }
+                            }
+                            _playPauseButton.Text = "⏸";
+                            return new CommandResult(true, $"Playing {animType}", null);
+                        }
+                        return new CommandResult(false, $"Unknown animation type: {typeStr}", null);
+                    }
+                    _animController.Resume();
+                    _playPauseButton.Text = "⏸";
+                    return new CommandResult(true, "Resumed", null);
+
+                case "pause":
+                    _animController.Pause();
+                    _playPauseButton.Text = "▶";
+                    return new CommandResult(true, "Paused", null);
+
+                case "stop":
+                    StopAnimation();
+                    return new CommandResult(true, "Stopped", null);
+
+                case "speed":
+                    if (args.TryGetProperty("value", out var speedProp))
+                    {
+                        float speed = (float)speedProp.GetDouble();
+                        _animController.SetSpeed(speed);
+                        _speedSlider.Value = speed;
+                        _speedValue.Text = $"{speed:F1}x";
+                        return new CommandResult(true, $"Speed set to {speed:F1}x", null);
+                    }
+                    return new CommandResult(false, "Missing 'value' for speed action", null);
+
+                default:
+                    return new CommandResult(false, $"Unknown action: {action}. Use list/play/pause/stop/speed", null);
+            }
         }
 
         #endregion

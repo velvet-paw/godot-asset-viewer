@@ -436,6 +436,66 @@ def cmd_asset_validate(args, project_path: Path):
         sys.exit(1)
 
 
+# ==================== ANIMATION PREVIEW ====================
+
+
+def cmd_animation_list(args, project_path: Path):
+    """List available animations for current asset."""
+    result = send_command(project_path, "asset_viewer_animation", {"action": "list"})
+    if result["success"]:
+        data = result.get("data", {})
+        print(f"Skeleton: {data.get('skeletonType', '?')}")
+        print(f"Playing: {data.get('playing', False)}")
+        print(f"Current: {data.get('current', '?')}")
+        print(f"Speed: {data.get('speed', 1.0)}x")
+        print(f"Animations: {', '.join(data.get('animations', []))}")
+    else:
+        print(f"Failed: {result['message']}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_animation_play(args, project_path: Path):
+    """Play an animation by type."""
+    result = send_command(project_path, "asset_viewer_animation",
+                          {"action": "play", "type": args.type})
+    if result["success"]:
+        print(result["message"])
+    else:
+        print(f"Failed: {result['message']}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_animation_pause(args, project_path: Path):
+    """Pause current animation."""
+    result = send_command(project_path, "asset_viewer_animation", {"action": "pause"})
+    if result["success"]:
+        print(result["message"])
+    else:
+        print(f"Failed: {result['message']}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_animation_stop(args, project_path: Path):
+    """Stop animation and reset pose."""
+    result = send_command(project_path, "asset_viewer_animation", {"action": "stop"})
+    if result["success"]:
+        print(result["message"])
+    else:
+        print(f"Failed: {result['message']}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_animation_speed(args, project_path: Path):
+    """Set animation playback speed."""
+    result = send_command(project_path, "asset_viewer_animation",
+                          {"action": "speed", "value": args.value})
+    if result["success"]:
+        print(result["message"])
+    else:
+        print(f"Failed: {result['message']}", file=sys.stderr)
+        sys.exit(1)
+
+
 # ==================== INPUT SIMULATION ====================
 
 
@@ -665,6 +725,27 @@ def main():
     p = subparsers.add_parser("asset-validate", help="Validate an asset")
     p.add_argument("path", help="Asset path (res://...)")
     p.set_defaults(func=cmd_asset_validate)
+
+    # animation - nested subcommands for animation preview
+    anim_parser = subparsers.add_parser("animation", help="Control animation preview")
+    anim_sub = anim_parser.add_subparsers(dest="anim_command", required=True)
+
+    p = anim_sub.add_parser("list", help="List available animations for current asset")
+    p.set_defaults(func=cmd_animation_list)
+
+    p = anim_sub.add_parser("play", help="Play an animation")
+    p.add_argument("type", help="Animation type (idle, walk, run, tail_wag, wave)")
+    p.set_defaults(func=cmd_animation_play)
+
+    p = anim_sub.add_parser("pause", help="Pause current animation")
+    p.set_defaults(func=cmd_animation_pause)
+
+    p = anim_sub.add_parser("stop", help="Stop animation and reset pose")
+    p.set_defaults(func=cmd_animation_stop)
+
+    p = anim_sub.add_parser("speed", help="Set animation speed")
+    p.add_argument("value", type=float, help="Speed multiplier (0.1-3.0)")
+    p.set_defaults(func=cmd_animation_speed)
 
     # input - nested subcommands for input simulation
     input_parser = subparsers.add_parser("input", help="Simulate input actions")
