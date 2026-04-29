@@ -199,6 +199,19 @@ RESP=$(run_blender_code "$IMPORT_CODE")
 if ! check_mcp_error "$RESP" "Import"; then exit 1; fi
 echo "  ✅ GLB imported"
 
+# Check for over-target vertex count — indicates Trellis2 decimation_target failed.
+# When this happens, baked textures will have fragmented UV islands with garbage
+# pixels between them, causing "shiny" artifacts in Godot.
+IMPORT_VERTS=$(echo "$RESP" | { grep -oP '(\d+) verts' | grep -oP '\d+' || echo "0"; })
+if [[ -n "$TARGET_VERTS" && "$IMPORT_VERTS" -gt 0 ]]; then
+    OVER_RATIO=$(( IMPORT_VERTS / TARGET_VERTS ))
+    if [[ "$OVER_RATIO" -ge 3 ]]; then
+        echo "  ⚠ WARNING: Input mesh has ${IMPORT_VERTS} verts (${OVER_RATIO}x over TARGET_VERTS=${TARGET_VERTS})"
+        echo "    Trellis2 decimation_target likely failed. Baked texture quality may be poor."
+        echo "    Consider: regenerate with lower decimation_target, or set FORCE_PBR=1"
+    fi
+fi
+
 # --- Step 1a: Manifold mesh repair ---
 #
 # Trellis2 meshes are often non-manifold (holes, internal faces, loose geometry).
@@ -941,7 +954,7 @@ for mat in bpy.data.materials:
 
     # Set constant values
     bsdf.inputs['Metallic'].default_value = 0.0
-    bsdf.inputs['Roughness'].default_value = 0.8
+    bsdf.inputs['Roughness'].default_value = 1.0
 
     # Disable backface culling = doubleSided in glTF export
     mat.use_backface_culling = False
@@ -956,7 +969,113 @@ STRIPPED_COUNT=$(echo "$RESP" | { grep -oP 'stripped:\K[0-9]+' || echo "0"; })
 echo "  ✅ Metallic/roughness removed (${STRIPPED_COUNT} textures), doubleSided enabled"
 fi
 
-# --- Step 5: Auto-rigging for animation (Godot-compatible) ---
+# --- Step 4c: Texture padding (UV island dilation) ---
+#
+# Trellis2 baked textures have fragmented UV islands with garbage-colored
+# pixels (bright pink, white, metallic) between them. Bilinear filtering
+# samples these at UV seam boundaries, causing "shiny brown artifacts."
+# Fix: use alpha channel to identify gap pixels (alpha < 0.5), then dilate
+# nearest covered pixel colors outward by PADDING pixels via BFS.
+# Also despeckle: replace bright outlier pixels (much brighter than their
+# 4-neighbors) with the neighbor average to catch full-alpha garbage.
+
+TEXTURE_PADDING="${TEXTURE_PADDING:-16}"
+echo "── Step 4c: Texture padding (${TEXTURE_PADDING}px dilation) ──"
+
+PAD_TEX_CODE=$(cat <<PYEOF
+import bpy
+import numpy as np
+from collections import deque
+
+padding = ${TEXTURE_PADDING}
+processed = 0
+
+for img in bpy.data.images:
+    if not img.has_data or img.size[0] < 4 or img.size[1] < 4:
+        continue
+    # Skip non-color images (normal maps, etc.)
+    if any(kw in img.name.lower() for kw in ['normal', 'roughness', 'metallic', 'height']):
+        continue
+
+    w, h = img.size
+    px = np.array(img.pixels[:]).reshape(h, w, 4)
+
+    # Alpha-based gap detection: pixels with alpha < 0.5 are UV gaps
+    covered = px[:,:,3] >= 0.5
+    gap_count = np.sum(~covered)
+    total = w * h
+
+    if gap_count == 0:
+        print(f"TEXTURE_PAD image={img.name} size={w}x{h} no_gaps")
+        continue
+
+    # BFS dilation from boundary of covered region into gaps
+    dist = np.full((h, w), -1, dtype=np.int32)
+    queue = deque()
+
+    # Fast boundary detection with numpy padding
+    padded_covered = np.pad(covered, 1, mode='constant', constant_values=False)
+    has_uncovered_neighbor = (
+        (~padded_covered[:-2, 1:-1]) |
+        (~padded_covered[2:, 1:-1]) |
+        (~padded_covered[1:-1, :-2]) |
+        (~padded_covered[1:-1, 2:])
+    )
+    boundary = covered & has_uncovered_neighbor
+    boundary_ys, boundary_xs = np.where(boundary)
+
+    for y, x in zip(boundary_ys, boundary_xs):
+        dist[y, x] = 0
+        queue.append((y, x))
+
+    padded_px = 0
+    while queue:
+        y, x = queue.popleft()
+        d = dist[y, x]
+        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < h and 0 <= nx < w and not covered[ny, nx] and dist[ny, nx] < 0:
+                nd = d + 1
+                if nd > padding:
+                    continue
+                px[ny, nx] = px[y, x]
+                covered[ny, nx] = True
+                dist[ny, nx] = nd
+                queue.append((ny, nx))
+                padded_px += 1
+
+    # Despeckle: replace bright outlier pixels with neighbor average
+    r, g, b = px[:,:,0], px[:,:,1], px[:,:,2]
+    luminance = 0.299 * r + 0.587 * g + 0.114 * b
+    lum_pad = np.pad(luminance, 1, mode='edge')
+    neighbor_avg = (lum_pad[:-2, 1:-1] + lum_pad[2:, 1:-1] +
+                    lum_pad[1:-1, :-2] + lum_pad[1:-1, 2:]) / 4
+    outliers = (luminance - neighbor_avg) > 0.15
+    despeckled = int(np.sum(outliers))
+    for c in range(3):
+        ch = px[:,:,c].copy()
+        ch_pad = np.pad(ch, 1, mode='edge')
+        ch_avg = (ch_pad[:-2, 1:-1] + ch_pad[2:, 1:-1] +
+                  ch_pad[1:-1, :-2] + ch_pad[1:-1, 2:]) / 4
+        px[:,:,c] = np.where(outliers, ch_avg, ch)
+
+    img.pixels[:] = px.flatten().tolist()
+    img.update()
+    cov_pct = 100 * np.sum(covered) / total
+    print(f"TEXTURE_PAD image={img.name} size={w}x{h} gaps={gap_count} padded={padded_px} despeckled={despeckled} coverage={cov_pct:.1f}%")
+    processed += 1
+
+print(f"TEXTURE_PAD_DONE processed={processed}")
+PYEOF
+)
+
+RESP=$(run_blender_code "$PAD_TEX_CODE")
+if ! check_mcp_error "$RESP" "Texture padding"; then
+    echo "  ⚠ Texture padding failed (non-fatal)"
+else
+    PAD_COUNT=$(echo "$RESP" | { grep -oP 'processed=\K[0-9]+' || echo "0"; })
+    echo "  ✅ Texture padding applied (${TEXTURE_PADDING}px dilation, ${PAD_COUNT} textures)"
+fi
 #
 # Creates a skeleton armature for characters/creatures with Godot-compatible
 # bone naming. Uses mesh bounding box analysis for bone placement and

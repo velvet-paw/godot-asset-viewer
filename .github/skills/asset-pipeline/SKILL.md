@@ -60,6 +60,7 @@ Workflow file: `comfyui/flows/trellis2-img2mesh.json`
 | `SKIP_RIGGING` | `0` | Set `1` to skip armature/weighting |
 | `SKIP_GROUND_REMOVAL` | `0` | Set `1` to keep ground plane |
 | `SKIP_MR_STRIP` | `0` | Set `1` to keep metallic/roughness texture (NOT recommended for Godot) |
+| `TEXTURE_PADDING` | `16` | Pixel dilation for UV island gap filling. Increases to reduce seam bleed |
 
 ## Vertex Targets
 
@@ -145,6 +146,24 @@ else:
 If `EARLY_FAIL`, skip Stage 6 and go directly to remediation (saves GPU time).
 
 For **humanoids**, add a solid-render gate: import raw GLB into Blender in `BLENDER_WORKBENCH` `color_type='SINGLE'` and reject if the silhouette looks like a slab/curtain/fused limbs. Treat as upstream failure, not Stage 6 failure.
+
+**Vertex count gate:** Also check the raw GLB vertex count. If it's >3× the `decimation_target`, the Trellis2 decimation failed and baked textures will have fragmented UV islands with garbage-colored pixels. Stage 6 now warns about this automatically.
+
+## Texture Quality: UV Fragmentation
+
+When Trellis2's `decimation_target` fails (mesh outputs at much higher vertex counts than requested), the UV layout becomes heavily fragmented — thousands of tiny UV islands with garbage-colored pixels (bright pink, white, metallic silver) between them. These bleed through at UV seam boundaries via bilinear texture filtering, causing visible "shiny brown" or "shiny silver" artifacts in Godot.
+
+**Diagnosis:** Extract and view the texture PNG from the GLB. A healthy texture has large, coherent UV islands (like the 15K boar). A fragmented texture looks like confetti — tiny patches of correct color interspersed with garbage.
+
+**Stage 6 mitigations (Step 4b + 4c):**
+- Step 4b strips metallic/roughness textures and sets roughness=1.0, metallic=0, specular=0
+- Step 4c applies texture padding: alpha-based gap detection + BFS dilation (16px default) + despeckle
+- These help with UV seam bleed but **cannot fix fundamentally fragmented textures**
+
+**When artifacts persist after Stage 6:**
+1. **Regenerate at lower vertex count** — set `decimation_target` to 15,000 or even 10,000 in the Trellis2 workflow
+2. **Check raw GLB vertex count** — if it's >>25K despite `decimation_target=25000`, Trellis2 hit a "decimation floor" for this mesh topology
+3. **FORCE_PBR=1** replaces the Trellis2 texture with CHORD PBR maps, but this only works well with camera UV projection (not Smart UV)
 
 ## Prompt Refinement Strategies
 
