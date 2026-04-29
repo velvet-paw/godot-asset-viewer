@@ -1327,6 +1327,89 @@ else:
         method = "region_aware" if asset_type == "humanoid" else "distance_based"
         print(f"SKIN_METHOD={method} dominant={top_name} pct={top_pct:.2f}")
 
+    # ── Weight cleanup pass ──
+    # Auto-weights and distance-based both produce bleed on Trellis2 meshes.
+    # Face vertices can get 60%+ leg weight, causing animation tearing.
+    face_z_pct = max(float("${FACE_Z_THRESHOLD:-0.80}"), 0.71)
+    clean_threshold = float("${WEIGHT_CLEAN_THRESHOLD:-0.02}")
+    max_influences = int("${MAX_BONE_INFLUENCES:-4}")
+
+    verts_world = [obj.matrix_world @ v.co for v in obj.data.vertices]
+    zs = [v.z for v in verts_world]
+    z_min_v, z_max_v = min(zs), max(zs)
+    v_height = max(z_max_v - z_min_v, 0.001)
+
+    leg_bones = {b.name for b in arm_obj.data.bones if "leg" in b.name or "foot" in b.name or "toe" in b.name}
+
+    if asset_type == "creature":
+        head_vg = obj.vertex_groups.get("head")
+        neck_vg = obj.vertex_groups.get("neck")
+        chest_vg = obj.vertex_groups.get("chest")
+        spine_vg = obj.vertex_groups.get("spine")
+        if head_vg:
+            cleaned_face = 0
+            cleaned_legs = 0
+            leg_fade_lo = 0.50
+            leg_fade_hi = 0.65
+
+            for i, v in enumerate(obj.data.vertices):
+                z_rel = (verts_world[i].z - z_min_v) / v_height
+
+                if z_rel >= face_z_pct:
+                    # Face region: force 100% head
+                    for g in list(v.groups):
+                        gname = obj.vertex_groups[g.group].name
+                        if gname != "head":
+                            obj.vertex_groups[gname].remove([v.index])
+                    head_vg.add([v.index], 1.0, 'REPLACE')
+                    cleaned_face += 1
+
+                elif z_rel >= 0.70:
+                    # Neck transition: only head + neck allowed
+                    t = (z_rel - 0.70) / (face_z_pct - 0.70)
+                    for g in list(v.groups):
+                        gname = obj.vertex_groups[g.group].name
+                        if gname not in ("head", "neck"):
+                            obj.vertex_groups[gname].remove([v.index])
+                    if neck_vg:
+                        neck_vg.add([v.index], 1.0 - t, 'REPLACE')
+                    head_vg.add([v.index], t, 'REPLACE')
+                    cleaned_face += 1
+
+                elif z_rel >= leg_fade_lo:
+                    # Torso region: fade out leg influence gradually
+                    fade_t = min(1.0, (z_rel - leg_fade_lo) / max(0.001, leg_fade_hi - leg_fade_lo))
+                    for g in list(v.groups):
+                        gname = obj.vertex_groups[g.group].name
+                        if gname in leg_bones and g.weight > 0.001:
+                            reduced = g.weight * (1.0 - fade_t)
+                            if reduced < 0.01:
+                                obj.vertex_groups[gname].remove([v.index])
+                                cleaned_legs += 1
+                            else:
+                                obj.vertex_groups[gname].add([v.index], reduced, 'REPLACE')
+                                cleaned_legs += 1
+                    # Ensure vertex still has weight after leg removal
+                    remaining = sum(g.weight for g in v.groups)
+                    if remaining < 0.01:
+                        nearest_torso = chest_vg or spine_vg or neck_vg
+                        if nearest_torso:
+                            nearest_torso.add([v.index], 1.0, 'REPLACE')
+
+            print(f"WEIGHT_CLEANUP face_locked={cleaned_face} legs_faded={cleaned_legs}")
+
+    # Clean stray weights, limit influences, normalize — all asset types
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    bpy.ops.object.mode_set(mode='WEIGHT_PAINT')
+    bpy.ops.object.vertex_group_clean(group_select_mode='ALL', limit=clean_threshold)
+    bpy.ops.object.vertex_group_limit_total(group_select_mode='ALL', limit=max_influences)
+    bpy.ops.object.vertex_group_normalize_all(group_select_mode='ALL', lock_active=False)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    print(f"WEIGHT_POST_CLEAN threshold={clean_threshold} max_influences={max_influences}")
+
     bone_count = len(arm_obj.data.bones)
     has_mod = any(m.type == 'ARMATURE' for m in obj.modifiers)
     has_vg = len(obj.vertex_groups) > 0
