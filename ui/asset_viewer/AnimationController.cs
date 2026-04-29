@@ -6,13 +6,18 @@ namespace TeaLeaves.UI
     /// <summary>
     /// Drives a Skeleton3D with procedural animations.
     /// Add as a child of the scene containing the skeleton.
-    /// Finds Skeleton3D in sibling/parent tree automatically.
+    /// Captures initial bone poses on init and composes animation rotations
+    /// on top of them, so the original mesh shape is preserved.
     /// </summary>
     public partial class AnimationController : Node
     {
         private Skeleton3D? _skeleton;
         private SkeletonDetector? _detector;
         private ProceduralAnimator? _animator;
+
+        // Initial bone poses captured at init time — animation composes on top of these
+        private Dictionary<int, Quaternion> _initialRotations = new();
+        private Dictionary<int, Vector3> _initialPositions = new();
 
         private AnimationType _currentAnim = AnimationType.Idle;
         private float _speed = 1.0f;
@@ -27,6 +32,7 @@ namespace TeaLeaves.UI
         /// <summary>
         /// Initializes the controller with an existing Skeleton3D node.
         /// Call this after adding the controller to the scene tree.
+        /// Captures current bone poses as the baseline for animation.
         /// </summary>
         public bool Initialize(Skeleton3D skeleton)
         {
@@ -43,6 +49,14 @@ namespace TeaLeaves.UI
             {
                 GD.PushWarning("AnimationController: Unknown skeleton type, no animations available");
                 return false;
+            }
+
+            // Capture initial bone poses before any animation
+            foreach (var kvp in _detector.BoneMap)
+            {
+                int boneIdx = kvp.Value;
+                _initialRotations[boneIdx] = skeleton.GetBonePoseRotation(boneIdx);
+                _initialPositions[boneIdx] = skeleton.GetBonePosePosition(boneIdx);
             }
 
             _animator = new ProceduralAnimator(_detector.Type);
@@ -99,17 +113,20 @@ namespace TeaLeaves.UI
                 int boneIdx = _detector.GetBoneIndex(pose.BoneName);
                 if (boneIdx < 0) continue;
 
-                _skeleton.SetBonePoseRotation(boneIdx, pose.Rotation);
+                // Compose: initial pose * animation delta
+                var initialRot = _initialRotations.GetValueOrDefault(boneIdx, Quaternion.Identity);
+                _skeleton.SetBonePoseRotation(boneIdx, initialRot * pose.Rotation);
 
                 if (pose.PositionOffset.HasValue)
                 {
-                    _skeleton.SetBonePosePosition(boneIdx, pose.PositionOffset.Value);
+                    var initialPos = _initialPositions.GetValueOrDefault(boneIdx, Vector3.Zero);
+                    _skeleton.SetBonePosePosition(boneIdx, initialPos + pose.PositionOffset.Value);
                 }
             }
         }
 
         /// <summary>
-        /// Resets all animated bones to their rest pose.
+        /// Resets all animated bones to their initial (pre-animation) pose.
         /// </summary>
         public void ResetPoses()
         {
@@ -118,8 +135,10 @@ namespace TeaLeaves.UI
             foreach (var kvp in _detector.BoneMap)
             {
                 int boneIdx = kvp.Value;
-                _skeleton.SetBonePoseRotation(boneIdx, Quaternion.Identity);
-                _skeleton.SetBonePosePosition(boneIdx, Vector3.Zero);
+                var rot = _initialRotations.GetValueOrDefault(boneIdx, Quaternion.Identity);
+                var pos = _initialPositions.GetValueOrDefault(boneIdx, Vector3.Zero);
+                _skeleton.SetBonePoseRotation(boneIdx, rot);
+                _skeleton.SetBonePosePosition(boneIdx, pos);
             }
         }
 
