@@ -35,6 +35,12 @@ ROUGHNESS_MIN = 0.8
 WEIGHT_COVERAGE_MIN = 0.95
 EXPECTED_BONE_NAMES = {"head", "spine", "neck", "hips"}
 NORMAL_SPLIT_WARN_THRESHOLD = 0.05  # WARN if >5% of shared positions have >120° splits
+UV_ISLAND_FAIL_THRESHOLD = 2000
+UV_ISLAND_WARN_THRESHOLD = 500
+UV_COVERAGE_WARN_THRESHOLD = 0.50
+METALLIC_GARBAGE_WARN_RATIO = 0.15
+METALLIC_BRIGHTNESS_THRESHOLD = 120
+METALLIC_SATURATION_THRESHOLD = 0.15
 
 
 def _load_mesh(path: str) -> trimesh.Trimesh:
@@ -730,6 +736,230 @@ def check_normal_consistency(report: GateReport, path: str):
     )
 
 
+def check_uv_fragmentation(report: GateReport, mesh: trimesh.Trimesh):
+    """Detect excessive UV island count and low UV coverage."""
+    from collections import defaultdict, deque
+
+    if not hasattr(mesh.visual, "uv") or mesh.visual.uv is None:
+        report.add_check(
+            name="uv_fragmentation",
+            status=STATUS_PASS,
+            expected=f"islands<={UV_ISLAND_WARN_THRESHOLD}",
+            actual="no UVs",
+            message="No UV data to check",
+        )
+        return
+
+    uvs = mesh.visual.uv
+    faces = mesh.faces
+
+    if len(faces) == 0:
+        report.add_check(
+            name="uv_fragmentation",
+            status=STATUS_PASS,
+            expected=f"islands<={UV_ISLAND_WARN_THRESHOLD}",
+            actual="no faces",
+            message="No faces to check",
+        )
+        return
+
+    # Build face adjacency by shared vertices
+    vert_to_faces: dict[int, list[int]] = defaultdict(list)
+    for fi, face in enumerate(faces):
+        for vi in face:
+            vert_to_faces[int(vi)].append(fi)
+
+    # BFS to find connected components (UV islands)
+    visited: set[int] = set()
+    islands = 0
+    for fi in range(len(faces)):
+        if fi in visited:
+            continue
+        islands += 1
+        queue = deque([fi])
+        while queue:
+            cur = queue.popleft()
+            if cur in visited:
+                continue
+            visited.add(cur)
+            for vi in faces[cur]:
+                for adj in vert_to_faces[int(vi)]:
+                    if adj not in visited:
+                        queue.append(adj)
+
+    # UV coverage: sum of UV triangle areas (vectorized)
+    uv0 = uvs[faces[:, 0]]
+    uv1 = uvs[faces[:, 1]]
+    uv2 = uvs[faces[:, 2]]
+    uv_area = float(0.5 * np.sum(np.abs(
+        (uv1[:, 0] - uv0[:, 0]) * (uv2[:, 1] - uv0[:, 1])
+        - (uv2[:, 0] - uv0[:, 0]) * (uv1[:, 1] - uv0[:, 1])
+    )))
+
+    # Determine status for island count
+    if islands > UV_ISLAND_FAIL_THRESHOLD:
+        report.add_check(
+            name="uv_fragmentation",
+            status=STATUS_FAIL,
+            expected=f"islands<={UV_ISLAND_FAIL_THRESHOLD}",
+            actual=f"{islands} islands",
+            message=f"Extreme UV fragmentation: {islands} islands (texture will have garbage)",
+            details={"islands": islands, "uv_coverage": round(uv_area, 4)},
+        )
+    elif islands > UV_ISLAND_WARN_THRESHOLD:
+        report.add_check(
+            name="uv_fragmentation",
+            status=STATUS_WARN,
+            expected=f"islands<={UV_ISLAND_WARN_THRESHOLD}",
+            actual=f"{islands} islands",
+            message=f"Moderate UV fragmentation: {islands} islands",
+            details={"islands": islands, "uv_coverage": round(uv_area, 4)},
+        )
+    else:
+        report.add_check(
+            name="uv_fragmentation",
+            status=STATUS_PASS,
+            expected=f"islands<={UV_ISLAND_WARN_THRESHOLD}",
+            actual=f"{islands} islands",
+            message=f"UV island count acceptable ({islands})",
+            details={"islands": islands, "uv_coverage": round(uv_area, 4)},
+        )
+
+    # UV coverage check
+    if uv_area < UV_COVERAGE_WARN_THRESHOLD:
+        report.add_check(
+            name="uv_coverage",
+            status=STATUS_WARN,
+            expected=f">={UV_COVERAGE_WARN_THRESHOLD:.0%}",
+            actual=f"{uv_area:.1%}",
+            message=f"Low UV coverage ({uv_area:.1%}) — too much wasted texture space",
+            details={"uv_coverage": round(uv_area, 4)},
+        )
+    else:
+        report.add_check(
+            name="uv_coverage",
+            status=STATUS_PASS,
+            expected=f">={UV_COVERAGE_WARN_THRESHOLD:.0%}",
+            actual=f"{uv_area:.1%}",
+            message=f"UV coverage adequate ({uv_area:.1%})",
+            details={"uv_coverage": round(uv_area, 4)},
+        )
+
+
+def check_texture_desaturation(report: GateReport, gltf: GLTF2, mesh: trimesh.Trimesh):
+    """Detect metallic-looking garbage pixels outside UV islands."""
+    # Need base color texture
+    materials = gltf.materials or []
+    tex_index = None
+    for mat in materials:
+        pbr = getattr(mat, "pbrMetallicRoughness", None)
+        if pbr and pbr.baseColorTexture is not None:
+            tex_index = pbr.baseColorTexture.index
+            break
+
+    if tex_index is None:
+        report.add_check(
+            name="texture_desaturation",
+            status=STATUS_PASS,
+            expected=f"metallic_gap_ratio<={METALLIC_GARBAGE_WARN_RATIO:.0%}",
+            actual="no base color texture",
+            message="No base color texture to check",
+        )
+        return
+
+    img = _extract_texture_image(gltf, tex_index)
+    if img is None:
+        report.add_check(
+            name="texture_desaturation",
+            status=STATUS_PASS,
+            expected=f"metallic_gap_ratio<={METALLIC_GARBAGE_WARN_RATIO:.0%}",
+            actual="texture not extractable",
+            message="Could not extract base color texture",
+        )
+        return
+
+    if not hasattr(mesh.visual, "uv") or mesh.visual.uv is None:
+        report.add_check(
+            name="texture_desaturation",
+            status=STATUS_PASS,
+            expected=f"metallic_gap_ratio<={METALLIC_GARBAGE_WARN_RATIO:.0%}",
+            actual="no UVs",
+            message="No UV data for rasterization",
+        )
+        return
+
+    img_rgb = img.convert("RGB")
+    w, h = img_rgb.size
+    uvs = mesh.visual.uv
+    faces = mesh.faces
+
+    # Rasterize UV triangles to build coverage mask (PIL polygon fill — fast C impl)
+    from PIL import Image as PILImage, ImageDraw
+    mask_img = PILImage.new("L", (w, h), 0)
+    draw = ImageDraw.Draw(mask_img)
+    for face in faces:
+        pts = [
+            (float(uvs[vi][0]) * (w - 1), (1.0 - float(uvs[vi][1])) * (h - 1))
+            for vi in face
+        ]
+        draw.polygon(pts, fill=255)
+    uv_mask = np.asarray(mask_img) > 0
+
+    # Get pixels outside UV islands
+    gap_mask = ~uv_mask
+    gap_count = int(np.sum(gap_mask))
+
+    if gap_count == 0:
+        report.add_check(
+            name="texture_desaturation",
+            status=STATUS_PASS,
+            expected=f"metallic_gap_ratio<={METALLIC_GARBAGE_WARN_RATIO:.0%}",
+            actual="no gap pixels",
+            message="Full UV coverage, no gap pixels to check",
+        )
+        return
+
+    pixels = np.asarray(img_rgb)
+    # Convert to HSV for saturation check
+    img_hsv = np.asarray(img.convert("HSV"))
+    saturation = img_hsv[:, :, 1] / 255.0  # Normalize to [0, 1]
+    brightness = np.max(pixels, axis=-1)  # Max channel as brightness
+
+    # Bright + desaturated pixels in gap areas
+    bright = brightness > METALLIC_BRIGHTNESS_THRESHOLD
+    desat = saturation < METALLIC_SATURATION_THRESHOLD
+    metallic_gap = gap_mask & bright & desat
+    metallic_count = int(np.sum(metallic_gap))
+    ratio = metallic_count / gap_count
+
+    if ratio > METALLIC_GARBAGE_WARN_RATIO:
+        report.add_check(
+            name="texture_desaturation",
+            status=STATUS_WARN,
+            expected=f"metallic_gap_ratio<={METALLIC_GARBAGE_WARN_RATIO:.0%}",
+            actual=f"{ratio:.1%} ({metallic_count}/{gap_count} gap pixels)",
+            message=f"Metallic-looking garbage in texture gaps: {ratio:.1%} of gap pixels are bright+desaturated",
+            details={
+                "metallic_gap_ratio": round(ratio, 4),
+                "metallic_pixels": metallic_count,
+                "gap_pixels": gap_count,
+            },
+        )
+    else:
+        report.add_check(
+            name="texture_desaturation",
+            status=STATUS_PASS,
+            expected=f"metallic_gap_ratio<={METALLIC_GARBAGE_WARN_RATIO:.0%}",
+            actual=f"{ratio:.1%}",
+            message="No significant metallic garbage in texture gaps",
+            details={
+                "metallic_gap_ratio": round(ratio, 4),
+                "metallic_pixels": metallic_count,
+                "gap_pixels": gap_count,
+            },
+        )
+
+
 def main():
     parser = base_arg_parser("Validate final GLB asset")
     args = parser.parse_args()
@@ -759,6 +989,8 @@ def main():
     check_double_sided(report, gltf)
     check_texture_pot(report, gltf)
     check_texture_quality(report, gltf)
+    check_uv_fragmentation(report, mesh)
+    check_texture_desaturation(report, gltf, mesh)
     check_armature(report, gltf, args.asset_type, thresholds)
     check_weight_coverage(report, gltf)
     check_scale(report, mesh, thresholds)

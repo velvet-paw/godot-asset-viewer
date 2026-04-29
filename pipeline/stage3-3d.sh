@@ -129,6 +129,27 @@ if new_glbs:
     shutil.copy2(src, dst)
     size = os.path.getsize(dst)
     print(f"  ✅ {dst} ({size} bytes)")
+
+    # Early gate: check vertex count vs decimation_target
+    try:
+        import trimesh
+        scene = trimesh.load(dst, force='scene')
+        mesh = list(scene.geometry.values())[0]
+        verts = len(mesh.vertices)
+        import json as _json
+        with open(flow_path) as _f:
+            _wf = _json.load(_f)
+        target = int(_wf.get('7', {}).get('inputs', {}).get('decimation_target', 25000))
+        ratio = verts / target
+        print(f"  Vertex check: {verts} verts (target {target}, ratio {ratio:.1f}x)")
+        if ratio > 3.0:
+            print(f"  ⚠ WARNING: vertex count {ratio:.1f}x over target — UV fragmentation likely")
+            print(f"  ⚠ Consider regenerating with lower decimation_target (e.g. 15000)")
+        else:
+            print(f"  ✅ Vertex count within expected range")
+    except Exception as e:
+        print(f"  ⚠ Vertex check skipped: {e}")
+
     print(f"Stage 3 PASSED ({elapsed:.1f}s)")
 else:
     print("  ❌ No GLB output found in ComfyUI output directory")

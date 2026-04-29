@@ -347,21 +347,28 @@ fi
 # Trellis2 baked textures have fragmented UV islands with garbage-colored
 # pixels (bright pink, white, metallic) between them. Bilinear filtering
 # samples these at UV seam boundaries, causing "shiny brown artifacts."
-# Fix: use alpha channel to identify gap pixels (alpha < 0.5), then dilate
+# Fix: rasterize mesh UV triangles to build a coverage mask, then dilate
 # nearest covered pixel colors outward by PADDING pixels via BFS.
 # Also despeckle: replace bright outlier pixels (much brighter than their
 # 4-neighbors) with the neighbor average to catch full-alpha garbage.
 
-TEXTURE_PADDING="${TEXTURE_PADDING:-16}"
+TEXTURE_PADDING="${TEXTURE_PADDING:-64}"
 echo "── Step 4c: Texture padding (${TEXTURE_PADDING}px dilation) ──"
 
 PAD_TEX_CODE=$(cat <<PYEOF
 import bpy
+import bmesh
 import numpy as np
 from collections import deque
+from PIL import Image, ImageDraw
 
 padding = ${TEXTURE_PADDING}
 processed = 0
+
+# Build UV coverage mask by rasterizing mesh UV triangles
+obj = [o for o in bpy.context.scene.objects if o.type == 'MESH'][0]
+mesh_data = obj.data
+uv_layer = mesh_data.uv_layers.active
 
 for img in bpy.data.images:
     if not img.has_data or img.size[0] < 4 or img.size[1] < 4:
@@ -373,9 +380,19 @@ for img in bpy.data.images:
     w, h = img.size
     px = np.array(img.pixels[:]).reshape(h, w, 4)
 
-    # Alpha-based gap detection: pixels with alpha < 0.5 are UV gaps
-    covered = px[:,:,3] >= 0.5
-    gap_count = np.sum(~covered)
+    # UV-mask-based gap detection: rasterize UV triangles to find covered pixels
+    mask_img = Image.new('L', (w, h), 0)
+    draw = ImageDraw.Draw(mask_img)
+    mesh_data.calc_loop_triangles()
+    for tri in mesh_data.loop_triangles:
+        pts = []
+        for loop_idx in tri.loops:
+            uv = uv_layer.data[loop_idx].uv
+            pts.append((uv.x * (w - 1), (1.0 - uv.y) * (h - 1)))
+        draw.polygon(pts, fill=255)
+    covered = np.array(mask_img) > 0
+
+    gap_count = int(np.sum(~covered))
     total = w * h
 
     if gap_count == 0:

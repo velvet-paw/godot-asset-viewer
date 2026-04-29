@@ -1,0 +1,103 @@
+{
+  "1": {
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Enhanced masked RGBA (concept RGB + glow-preserving alpha)"
+    },
+    "inputs": {
+      "image": "input.png"
+    }
+  },
+  "2": {
+    "class_type": "InvertMask",
+    "_meta": {
+      "title": "Invert ComfyUI mask (bg=1) to conditioning mask (fg=1)"
+    },
+    "inputs": {
+      "mask": [
+        "1",
+        1
+      ]
+    }
+  },
+  "3": {
+    "class_type": "LoadTrellis2Models",
+    "inputs": {
+      "resolution": "1024_cascade",
+      "precision": "auto",
+      "attn_backend": "auto"
+    }
+  },
+  "4": {
+    "class_type": "Trellis2GetConditioning",
+    "inputs": {
+      "model_config": [
+        "3",
+        0
+      ],
+      "image": [
+        "1",
+        0
+      ],
+      "mask": [
+        "2",
+        0
+      ],
+      "background_color": "black"
+    }
+  },
+  "5": {
+    "class_type": "Trellis2ImageToShape",
+    "inputs": {
+      "model_config": [
+        "3",
+        0
+      ],
+      "conditioning": [
+        "4",
+        0
+      ],
+      "seed": 0,
+      "ss_guidance_strength": 7.5,
+      "ss_sampling_steps": 12,
+      "shape_guidance_strength": 7.5,
+      "shape_sampling_steps": 12,
+      "max_tokens": 32768
+    }
+  },
+  "6": {
+    "class_type": "Trellis2ShapeToTexturedMesh",
+    "inputs": {
+      "model_config": [
+        "3",
+        0
+      ],
+      "conditioning": [
+        "4",
+        0
+      ],
+      "shape_result": [
+        "5",
+        0
+      ],
+      "seed": 0,
+      "tex_guidance_strength": 7.5,
+      "tex_sampling_steps": 12
+    }
+  },
+  "7": {
+    "class_type": "Trellis2ExportGLB",
+    "inputs": {
+      "voxelgrid_path": [
+        "6",
+        1
+      ],
+      "decimation_target": 15000,
+      "texture_size": 1024,
+      "remesh": true,
+      "remesh_band": 2.0,
+      "remesh_project": 0.9,
+      "filename_prefix": "trellis2"
+    }
+  }
+}
