@@ -187,10 +187,14 @@ namespace TeaLeaves.UI
 
         #region Asset Scanning
 
+        // Only scan directories that contain user-generated game assets.
+        private static readonly string[] AssetScanRoots = { "res://actors", "res://data", "res://levels" };
+
         public void ScanAssets()
         {
             _allAssets.Clear();
-            ScanDirectory("res://");
+            foreach (var root in AssetScanRoots)
+                ScanDirectory(root);
             FilterAssets(_searchInput.Text, GetSelectedTypeFilter());
         }
 
