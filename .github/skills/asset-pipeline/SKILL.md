@@ -50,6 +50,7 @@ Workflow file: `comfyui/flows/trellis2-img2mesh.json`
 | `PBR_CHANNELS` | `all` | Comma-separated list: `albedo,normal,roughness,metallic,height` |
 | `SKIP_RIGGING` | `0` | Set `1` to skip armature/weighting |
 | `SKIP_GROUND_REMOVAL` | `0` | Set `1` to keep ground plane |
+| `SKIP_MR_STRIP` | `0` | Set `1` to keep metallic/roughness texture (NOT recommended for Godot) |
 
 ## Vertex Targets (Trellis2 Baked Textures)
 
@@ -248,7 +249,7 @@ QUALITY=web ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_final.glb 
 | `desktop` | 1024×1024 | JPEG q85 | As-is | <5 MB | Desktop games |
 | `source` | Original | PNG | None | No limit | Archival, highest quality |
 
-MetallicRoughness is **stripped by default** (metallic=0, roughness=0.9). Even with Blender collapse decimation, the MR texture on decimated meshes causes shiny brown artifacts in Godot. Set `STRIP_METALROUGH=0` only for undecimated full-res meshes.
+MetallicRoughness is **prevented at source** in Stage 6 Step 4b — Blender strips the MR texture from the Principled BSDF before export (metallic=0.0, roughness=0.8). This means exported GLBs never contain MR textures, eliminating shiny brown artifacts in Godot's Forward+ renderer. The `STRIP_METALROUGH` option in optimize-for-web.sh is now redundant for Trellis2 meshes but kept as a safety net for non-pipeline GLBs.
 
 All materials are set to **doubleSided=true** automatically. Trellis2 outputs triangle-soup meshes where triangles share no vertices — after decimation, visible gaps appear between triangles. doubleSided renders back faces, filling these gaps at zero file-size cost.
 

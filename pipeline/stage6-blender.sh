@@ -880,7 +880,12 @@ fi
 # Trellis2 bakes an MR texture that causes shiny artifacts in Godot.
 # Remove it at the Blender level BEFORE export so GLBs are always clean.
 # Also disable backface culling so GLB exports with doubleSided=true.
+# Set SKIP_MR_STRIP=1 to keep MR textures (NOT recommended for Godot).
 
+SKIP_MR_STRIP="${SKIP_MR_STRIP:-0}"
+if [[ "$SKIP_MR_STRIP" == "1" ]]; then
+    echo "── Step 4b: SKIPPED (SKIP_MR_STRIP=1) ──"
+else
 echo "── Step 4b: Strip metallic/roughness, set doubleSided ──"
 
 STRIP_MR_CODE=$(cat <<'PYEOF'
@@ -949,6 +954,7 @@ RESP=$(run_blender_code "$STRIP_MR_CODE")
 if ! check_mcp_error "$RESP" "Strip MR"; then exit 1; fi
 STRIPPED_COUNT=$(echo "$RESP" | { grep -oP 'stripped:\K[0-9]+' || echo "0"; })
 echo "  ✅ Metallic/roughness removed (${STRIPPED_COUNT} textures), doubleSided enabled"
+fi
 
 # --- Step 5: Auto-rigging for animation (Godot-compatible) ---
 #
