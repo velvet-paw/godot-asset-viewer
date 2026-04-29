@@ -174,20 +174,6 @@ print(f'File size: {os.path.getsize(path) / (1024*1024):.1f} MB')
 "
 ```
 
-### 7. Stage 7 — Web Optimization (Default)
-
-**Always run** after Stage 6 unless user requests `source` quality. See `/asset-pipeline` skill for presets.
-
-```bash
-# Default: web quality
-QUALITY=web ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset_name}_final.glb ~/assets/final_glb/{asset_name}_web.glb
-
-# Desktop quality
-QUALITY=desktop ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset_name}_final.glb ~/assets/final_glb/{asset_name}_desktop.glb
-```
-
-**Input must be Stage 6 output** (Blender collapse-decimated). This script only resizes textures — mesh decimation is done by Blender in Stage 6. **Never use gltf-transform simplify** — it destroys normals on Trellis2 meshes.
-
 For comprehensive validation, invoke the **asset-validator** agent.
 
 ## Important Rules

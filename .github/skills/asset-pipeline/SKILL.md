@@ -179,16 +179,16 @@ stylized hand-painted clay pot, round terracotta vessel with wide belly and narr
 
 ## Golden Path Quick Reference
 
-| Asset Type | Source Verts | Desktop (30K) | Web (15K) | Pipeline Time | Key Prompt Keywords |
-|------------|-------------|---------------|-----------|---------------|-------------------|
-| Creature (quadruped) | 150K | ~5 MB | ~2 MB | ~50s×3 | `three-quarter, four legs separated, color variation, cel-shaded` |
-| Creature (bird) | 150K | ~5 MB | ~2 MB | ~50s×3 | `three-quarter, wings folded, color variation in plumage` |
-| Prop (textured) | 100K | ~4 MB | ~1.5 MB | ~50s×3 | `centered, single object, orthographic, color variation` |
-| Weapon | 50K | ~3 MB | ~1 MB | ~50s×3 | `centered, single object, orthographic, flat lighting` |
-| Humanoid | 15K | ~3 MB | ~1.5 MB | ~50s×3 | `front view, 3D rendered, neutral A-pose, no cape` |
+| Asset Type | Verts | Size | Pipeline Time | Key Prompt Keywords |
+|------------|-------|------|---------------|-------------------|
+| Creature (quadruped) | 150K | ~24 MB | ~3.5 min | `three-quarter, four legs separated, color variation, cel-shaded` |
+| Creature (bird) | 150K | ~23 MB | ~3.5 min | `three-quarter, wings folded, color variation in plumage` |
+| Prop (textured) | 100K | ~15 MB | ~3.5 min | `centered, single object, orthographic, color variation` |
+| Weapon | 50K | ~10 MB | ~3.5 min | `centered, single object, orthographic, flat lighting` |
+| Humanoid | 15K | ~8 MB | ~3.5 min | `front view, 3D rendered, neutral A-pose, no cape` |
 
-> Times assume warm containers + 3 tiers. Flux: ~28s, BiRefNet: ~4s, Trellis2: ~170s, Stage 6: ~15s×3.
-> File sizes with JPEG textures + MR strip + doubleSided. Mesh geometry dominates due to per-triangle UVs.
+> Times assume warm containers. Flux: ~28s, BiRefNet: ~4s, Trellis2: ~170s, Stage 6: ~15s.
+> Sizes reflect 2048px PNG textures with MR stripped. Baked textures dominate file size.
 
 ## Prompt Do's and Don'ts
 
@@ -200,106 +200,29 @@ stylized hand-painted clay pot, round terracotta vessel with wide belly and narr
 - ❌ Humanoids with merged arms, capes, or wall-like silhouettes
 - ❌ Uniform white/grey creature concepts — groove artifacts visible
 
-## Stage 7 — Web Optimization (Default)
-
-After Stage 6, **always** run web optimization unless the user explicitly requests `source` quality.
-
-**Input must be a Blender collapse-decimated GLB** (e.g., `_final.glb` from Stage 6). Do NOT use raw Trellis2 output.
-
-### Three-Tier Generation (Recommended)
-
-Generate source, desktop, and web variants from the same Trellis2 output:
-
-```bash
-./pipeline/generate-asset-tiers.sh <input_glb> <asset_name> [asset_type]
-```
-
-| Tier | Verts | Textures | Rigging | Target Size | Use Case |
-|------|-------|----------|---------|-------------|----------|
-| `source` | 150K | Original PNG | Yes | Unlimited | Archival, highest quality |
-| `desktop` | 30K | 1024px JPEG q85 | Yes | <5 MB | Desktop games |
-| `web` | 15K | 512px JPEG q80 | No | <2 MB | Browser games, mobile |
-
-Override defaults with env vars: `SOURCE_VERTS`, `DESKTOP_VERTS`, `WEB_VERTS`.
-
-### Single-Tier Optimization
-
-For manual control, use optimize-for-web.sh directly:
-
-```bash
-# Desktop quality
-QUALITY=desktop ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_final.glb ~/assets/final_glb/{asset}_desktop.glb
-
-# Web quality
-QUALITY=web ./pipeline/optimize-for-web.sh ~/assets/final_glb/{asset}_final.glb ~/assets/final_glb/{asset}_web.glb
-```
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `QUALITY` | `web` | **REQUIRED.** `web` (512px JPEG q80), `desktop` (1024px JPEG q85), `source` (no-op) |
-| `TEXTURE_SIZE` | (per preset) | Override texture resize dimension |
-| `JPEG_QUALITY` | (per preset) | JPEG compression quality 1-100 (0=skip, keep PNG) |
-| `STRIP_METALROUGH` | `1` | Set to `0` to keep metallicRoughness texture (only for undecimated meshes) |
-
-### Quality Presets
-
-| Preset | Textures | Format | Mesh | Target Size | Use Case |
-|--------|----------|--------|------|-------------|----------|
-| `web` (default) | 512×512 | JPEG q80 | As-is | <2 MB | Browser games, mobile |
-| `desktop` | 1024×1024 | JPEG q85 | As-is | <5 MB | Desktop games |
-| `source` | Original | PNG | None | No limit | Archival, highest quality |
-
-MetallicRoughness is **prevented at source** in Stage 6 Step 4b — Blender strips the MR texture from the Principled BSDF before export (metallic=0.0, roughness=0.8). This means exported GLBs never contain MR textures, eliminating shiny brown artifacts in Godot's Forward+ renderer. The `STRIP_METALROUGH` option in optimize-for-web.sh is now redundant for Trellis2 meshes but kept as a safety net for non-pipeline GLBs.
-
-All materials are set to **doubleSided=true** automatically. Trellis2 outputs triangle-soup meshes where triangles share no vertices — after decimation, visible gaps appear between triangles. doubleSided renders back faces, filling these gaps at zero file-size cost.
-
-### Godot 4.6 Compatibility (CRITICAL)
+## Godot 4.6 Compatibility (CRITICAL)
 
 These operations **break** Godot 4.6 rendering — never use them:
 - ❌ `gltf-transform quantize` — produces blank renders
 - ❌ `gltf-transform webp` — WebP textures in GLB not supported
 - ❌ `gltf-transform simplify` — **destroys normals on Trellis2 meshes**, causing shiny faceted artifacts. All mesh decimation MUST be done in Blender.
 - ❌ Draco compression, KTX2/Basis, EXT_meshopt_compression
+- ❌ Decimating below 50K verts — destroys UV fidelity on Trellis2 baked textures
+- ❌ JPEG texture compression in GLB — quality loss not worth the file size savings
 
-These operations are **safe** and used by optimize-for-web.sh:
-- ✅ `gltf-transform resize` — PNG texture resizing
-- ✅ `gltf-transform dedup` / `prune` — cleanup
-- ✅ `doubleSided=true` — fills polygon gaps from decimated triangle soup (set via strip-metalrough.mjs or set-doublesided.mjs)
+**No post-processing optimization after Stage 6.** Stage 6 output (`_final.glb`) IS the shipping asset. MR stripping, doubleSided, and mesh cleanup are all handled inside Stage 6 before export.
 
-### Input Selection
+## Trellis2 Topology — Why Quality Requires High Vertex Counts
 
-**Input must be Stage 6 output** (already decimated by Blender collapse decimation). The optimize-for-web.sh script only resizes textures and cleans up — it does NOT simplify meshes. Mesh decimation is Blender's job (Stage 6) because gltf-transform simplify destroys vertex normals and UV quality on Trellis2 triangle-soup meshes.
+Trellis2's CuMesh remesher with `remesh_project=0.9` produces manifold topology suitable for decimation. However, Trellis2 baked textures use per-triangle UV islands — each triangle occupies its own UV space. This means:
 
-### Trellis2 Triangle Soup — Root Cause & Fix
-
-Trellis2's CuMesh remesher outputs **triangle soup** by default because the `Trellis2ExportGLB` node
-hardcoded `remesh_project=0` (no surface projection) and `remesh_band=1` (minimum bandwidth).
-
-**Golden Path (both layers):**
-
-1. **Source fix — CuMesh remesh parameters** (workflow JSON):
-   ```json
-   "remesh_band": 2.0,
-   "remesh_project": 0.9
-   ```
-   Setting `remesh_project=0.9` (Microsoft's recommended default) projects remeshed vertices back to
-   the original surface, creating shared vertices with proper topology. Tested results:
-   - Near-duplicate vertex pairs: **637K → 244K** (62% reduction)
-   - Boundary edges: **402K → 230K** (43% reduction)
-   - Vertex/face ratio: **1.04 (soup) → 0.78 (shared)**
-   - **No visible polygon gaps** after decimation to 30K verts
-   - **No texture bleed** — decimation preserves UV fidelity on manifold topology
-
-2. **Defense-in-depth — `doubleSided=true`** (optimize-for-web.sh):
-   Applied automatically during texture optimization. Renders back faces to fill any
-   remaining micro-gaps at extreme zoom. Zero file-size cost.
-
-**Always use both layers.** The remesh fix produces dramatically better meshes, and
-doubleSided catches edge cases at extreme zoom levels.
+1. **Decimating below 50K** averages UV coordinates across island boundaries → texture sampling artifacts
+2. **The golden path is full-resolution** (150K for creatures) — this preserves UV fidelity perfectly
+3. **doubleSided=true** fills any remaining micro-gaps at extreme zoom (zero cost, set in Step 4b)
 
 ### Legacy Triangle Soup Limitations (remesh_project=0)
 
-These issues are **resolved** by the golden path above but documented for reference:
+These issues are **resolved** by `remesh_project=0.9` but documented for reference:
 
 1. **Polygon gaps after decimation** — Each triangle had its own 3 unique vertices.
    After decimation to <60K verts, gaps became visible when zooming in.
@@ -331,6 +254,6 @@ Specialized agent definitions in `.github/agents/`:
 | Agent | Role |
 |-------|------|
 | `asset-orchestrator` | Generate → validate → remediate loop (≤5 attempts) |
-| `game-asset-agent` | End-to-end pipeline execution (Stages 1–7) |
+| `game-asset-agent` | End-to-end pipeline execution (Stages 1–6) |
 | `asset-validator` | Quality checks: geometry, UVs, materials, file size, web-readiness |
 | `modify-game-asset` | Modify existing GLBs via Blender MCP |
