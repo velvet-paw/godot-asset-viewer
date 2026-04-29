@@ -438,6 +438,29 @@ for img in bpy.data.images:
     print(f"TEXTURE_PAD image={img.name} size={w}x{h} gaps={gap_count} padded={padded_px} despeckled={despeckled} coverage={cov_pct:.1f}%")
     processed += 1
 
+# --- Flatten alpha to 1.0 for OPAQUE materials ---
+# Trellis2 textures often have semi-transparent alpha (200-254) on valid UV island
+# pixels. For OPAQUE materials, alpha is meaningless and the semi-transparency
+# wastes texture bits while confusing some import pipelines.
+import bpy
+for mat in bpy.data.materials:
+    # glTF OPAQUE = no alpha usage
+    if mat.blend_method in ('OPAQUE', 'CLIP') or not mat.use_backface_culling:
+        for img in bpy.data.images:
+            if not img.has_data or img.size[0] < 4:
+                continue
+            if any(kw in img.name.lower() for kw in ['normal', 'roughness', 'metallic', 'height']):
+                continue
+            w2, h2 = img.size
+            px2 = np.array(img.pixels[:]).reshape(h2, w2, 4)
+            non_opaque = np.sum(px2[:,:,3] < 1.0)
+            if non_opaque > 0:
+                px2[:,:,3] = 1.0
+                img.pixels[:] = px2.flatten().tolist()
+                img.update()
+                print(f"ALPHA_FLATTEN image={img.name} fixed={non_opaque} pixels")
+        break  # only need to process once
+
 print(f"TEXTURE_PAD_DONE processed={processed}")
 PYEOF
 )

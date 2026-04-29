@@ -214,3 +214,90 @@ if ! check_mcp_error "$RESP" "Scale"; then
 else
     echo "  ✅ Scaled to ${TARGET_HEIGHT}m"
 fi
+
+# --- Step 2c: Normal smoothing ---
+#
+# Trellis2 meshes have fragmented UV islands with independently calculated vertex
+# normals. At UV seam boundaries, vertices sharing a position but belonging to
+# different islands get divergent normals (up to 180° apart). This causes visible
+# shading discontinuities ("blotchy overlay") that shift with lighting/animation.
+#
+# Fix: clear any custom split normals, apply smooth shading, then explicitly
+# average normals at shared vertex positions so normals are continuous across
+# UV seams. Applied AFTER decimation+scaling since both operations change geometry.
+
+echo "── Step 2c: Normal smoothing (cross-seam averaging) ──"
+
+SMOOTH_CODE=$(cat <<PYEOF
+import bpy
+import numpy as np
+from collections import defaultdict
+
+mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
+
+for obj in mesh_objects:
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    mesh = obj.data
+
+    # Clear custom split normals from Trellis2
+    if mesh.has_custom_normals:
+        bpy.ops.mesh.customdata_custom_splitnormals_clear()
+
+    bpy.ops.object.shade_smooth()
+
+    # Compute area-weighted face normals per vertex
+    verts = np.array([v.co[:] for v in mesh.vertices])
+    face_normals = np.array([p.normal[:] for p in mesh.polygons])
+    face_areas = np.array([p.area for p in mesh.polygons])
+
+    vert_face_map = defaultdict(list)
+    for fi, poly in enumerate(mesh.polygons):
+        for vi in poly.vertices:
+            vert_face_map[vi].append(fi)
+
+    avg_normals = np.zeros((len(verts), 3), dtype=np.float64)
+    for vi in range(len(verts)):
+        faces = vert_face_map[vi]
+        if faces:
+            weights = face_areas[faces]
+            weighted = face_normals[faces] * weights[:, np.newaxis]
+            avg = weighted.sum(axis=0)
+            length = np.linalg.norm(avg)
+            avg_normals[vi] = avg / length if length > 1e-8 else np.array([0, 0, 1])
+
+    # Average normals across shared positions (the key fix for UV seam boundaries)
+    pos_rounded = np.round(verts, 5)
+    pos_to_indices = defaultdict(list)
+    for idx in range(len(verts)):
+        pos_to_indices[tuple(pos_rounded[idx])].append(idx)
+
+    shared_count = 0
+    for indices in pos_to_indices.values():
+        if len(indices) > 1:
+            combined = avg_normals[indices].mean(axis=0)
+            length = np.linalg.norm(combined)
+            if length > 1e-8:
+                combined /= length
+            for idx in indices:
+                avg_normals[idx] = combined
+            shared_count += 1
+
+    # Apply as custom split normals
+    loop_normals = [tuple(avg_normals[loop.vertex_index]) for loop in mesh.loops]
+    mesh.normals_split_custom_set(loop_normals)
+    mesh.update()
+
+    obj.select_set(False)
+    print(f"SMOOTH {obj.name}: {len(verts)} verts, {shared_count} positions averaged, {len(loop_normals)} loops")
+
+print("SMOOTH_DONE")
+PYEOF
+)
+
+RESP=$(run_blender_code "$SMOOTH_CODE")
+if ! check_mcp_error "$RESP" "Normal smoothing"; then
+    echo "  ⚠ Normal smoothing failed (non-fatal, continuing)"
+else
+    echo "  ✅ Normals smoothed (cross-seam averaged)"
+fi

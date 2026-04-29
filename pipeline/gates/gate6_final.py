@@ -34,6 +34,7 @@ METALLIC_MAX = 0.1
 ROUGHNESS_MIN = 0.8
 WEIGHT_COVERAGE_MIN = 0.95
 EXPECTED_BONE_NAMES = {"head", "spine", "neck", "hips"}
+NORMAL_SPLIT_WARN_THRESHOLD = 0.05  # WARN if >5% of shared positions have >120° splits
 
 
 def _load_mesh(path: str) -> trimesh.Trimesh:
@@ -584,6 +585,81 @@ def check_lods(report: GateReport, path: str, main_verts: int):
         )
 
 
+def check_normal_consistency(report: GateReport, path: str):
+    """Check for split normals at shared vertex positions (UV seam artifacts).
+
+    Uses raw scene geometry (not ``to_geometry()``) so that scene-graph
+    transforms do not distort the vertex normals.
+    """
+    from collections import defaultdict
+
+    scene = trimesh.load(path, force="scene")
+    if isinstance(scene, trimesh.Scene):
+        geom = list(scene.geometry.values())[0] if scene.geometry else None
+    elif isinstance(scene, trimesh.Trimesh):
+        geom = scene
+    else:
+        geom = None
+
+    if geom is None or len(geom.vertices) == 0:
+        report.add_check(
+            name="normal_consistency",
+            status=STATUS_PASS,
+            expected="no split normals",
+            actual="no geometry",
+            message="No geometry to check",
+        )
+        return
+
+    verts = geom.vertices
+    normals = geom.vertex_normals
+    pos_rounded = np.round(verts, 5)
+
+    pos_to_normals = defaultdict(list)
+    for i in range(len(verts)):
+        pos_to_normals[tuple(pos_rounded[i])].append(normals[i])
+
+    shared_positions = 0
+    extreme_splits = 0  # >120° difference
+    for norms in pos_to_normals.values():
+        if len(norms) <= 1:
+            continue
+        shared_positions += 1
+        arr = np.array(norms)
+        dots = np.clip(arr @ arr.T, -1, 1)
+        min_dot = dots[np.triu_indices(len(arr), k=1)].min()
+        if min_dot < -0.5:  # cos(120°) = -0.5
+            extreme_splits += 1
+
+    if shared_positions == 0:
+        report.add_check(
+            name="normal_consistency",
+            status=STATUS_PASS,
+            expected="no split normals",
+            actual="no shared positions",
+            message="No shared vertex positions to check",
+        )
+        return
+
+    ratio = extreme_splits / shared_positions
+    ok = ratio <= NORMAL_SPLIT_WARN_THRESHOLD
+
+    report.add_check(
+        name="normal_consistency",
+        status=STATUS_PASS if ok else STATUS_WARN,
+        expected=f"<={NORMAL_SPLIT_WARN_THRESHOLD:.0%} positions with >120° splits",
+        actual=f"{ratio:.1%} ({extreme_splits}/{shared_positions})",
+        message="Normals consistent across UV seams"
+        if ok
+        else f"{extreme_splits} positions have extreme normal splits (blotchy shading risk)",
+        details={
+            "shared_positions": shared_positions,
+            "extreme_splits": extreme_splits,
+            "ratio": round(ratio, 4),
+        },
+    )
+
+
 def main():
     parser = base_arg_parser("Validate final GLB asset")
     args = parser.parse_args()
@@ -618,6 +694,7 @@ def main():
     check_scale(report, mesh, thresholds)
     check_file_size(report, glb_path, thresholds)
     check_lods(report, glb_path, len(mesh.vertices))
+    check_normal_consistency(report, glb_path)
 
     finish(report, "stage6-final", args)
 
