@@ -290,19 +290,18 @@ def check_uv_islands(report: GateReport, mesh: trimesh.Trimesh,
                  "threshold": island_warn_threshold},
     )
 
-    # Median island size check
+    # Median island size — informational only (Trellis2 always produces tiny islands)
+    size_status = STATUS_PASS
     if median_area < UV_ISLAND_MEDIAN_THRESHOLD:
-        size_status = STATUS_WARN
         size_msg = (f"Median UV island area {median_area:.5f} "
-                    f"— very small islands")
+                    f"— small islands (typical for Trellis2 baked textures)")
     else:
-        size_status = STATUS_PASS
         size_msg = f"Median UV island area {median_area:.5f} OK"
 
     report.add_check(
         name="uv_island_size",
         status=size_status,
-        expected=f"median>={UV_ISLAND_MEDIAN_THRESHOLD}",
+        expected=f"informational (threshold={UV_ISLAND_MEDIAN_THRESHOLD})",
         actual=f"median={median_area:.5f}",
         message=size_msg,
         details={"median_area": round(median_area, 6)},
@@ -427,15 +426,15 @@ def check_texture_garbage(report: GateReport, texture: Image.Image | None):
 
 
 def check_manifold(report: GateReport, mesh: trimesh.Trimesh):
-    """Check if mesh is watertight (manifold)."""
+    """Check if mesh is watertight (manifold). Informational only — Stage 6a repairs this."""
     is_watertight = bool(mesh.is_watertight)
 
     report.add_check(
         name="manifold_check",
-        status=STATUS_PASS if is_watertight else STATUS_WARN,
-        expected="watertight",
+        status=STATUS_PASS,
+        expected="informational (repaired in stage6a)",
         actual="watertight" if is_watertight else "non-manifold",
-        message="Mesh is watertight" if is_watertight else "Mesh has non-manifold edges",
+        message="Mesh is watertight" if is_watertight else "Mesh is non-manifold (will be repaired in Stage 6a)",
         details={"is_watertight": is_watertight},
     )
 

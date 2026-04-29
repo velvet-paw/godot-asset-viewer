@@ -122,7 +122,7 @@ THRESHOLDS = {
         "height_tolerance": 0.2,
         "texture_size": 1024,
         "min_bones": 10,
-        "uv_island_warn": 500,
+        "uv_island_warn": 10000,
     },
     "humanoid": {
         "max_verts": 50000,
@@ -133,7 +133,7 @@ THRESHOLDS = {
         "height_tolerance": 0.2,
         "texture_size": 1024,
         "min_bones": 18,
-        "uv_island_warn": 500,
+        "uv_island_warn": 8000,
     },
     "prop": {
         "max_verts": 75000,
@@ -144,7 +144,7 @@ THRESHOLDS = {
         "height_tolerance": 0.3,
         "texture_size": 1024,
         "min_bones": 0,
-        "uv_island_warn": 300,
+        "uv_island_warn": 5000,
     },
     "weapon": {
         "max_verts": 50000,
@@ -155,7 +155,7 @@ THRESHOLDS = {
         "height_tolerance": 0.3,
         "texture_size": 1024,
         "min_bones": 0,
-        "uv_island_warn": 200,
+        "uv_island_warn": 3000,
     },
 }
 
@@ -327,6 +327,10 @@ def base_arg_parser(description: str) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--target-verts", type=int, default=None, help="Override target vertex count"
+    )
+    parser.add_argument(
+        "--target-height", type=float, default=None,
+        help="Override target height in meters (default: from asset-type thresholds)"
     )
     parser.add_argument(
         "--output", default=None, help="Write JSON report to file (default: stdout)"

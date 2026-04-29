@@ -597,6 +597,9 @@ def main():
     if args.target_verts is not None:
         thresholds = dict(thresholds)
         thresholds["target_verts"] = args.target_verts
+    if args.target_height is not None:
+        thresholds = dict(thresholds) if not isinstance(thresholds, dict) else thresholds
+        thresholds["target_height"] = args.target_height
 
     # Load with both trimesh (geometry) and pygltflib (materials)
     mesh = _load_mesh(glb_path)

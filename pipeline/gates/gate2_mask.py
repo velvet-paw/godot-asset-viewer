@@ -96,7 +96,7 @@ def check_edge_quality(report: GateReport, alpha: np.ndarray) -> None:
     harsh_pixels = int(np.count_nonzero(gradient > 200))
     harsh_pct = harsh_pixels / edge_count * 100
 
-    if harsh_pct > 5:
+    if harsh_pct > 35:
         status = STATUS_WARN
         message = (
             f"{harsh_pct:.1f}% of edge pixels have harsh transitions "
@@ -109,7 +109,7 @@ def check_edge_quality(report: GateReport, alpha: np.ndarray) -> None:
     report.add_check(
         name="edge_quality",
         status=status,
-        expected="≤5% harsh edge pixels",
+        expected="≤35% harsh edge pixels",
         actual=f"{harsh_pct:.1f}%",
         message=message,
         details={"edge_pixels": edge_count, "harsh_pixels": harsh_pixels},

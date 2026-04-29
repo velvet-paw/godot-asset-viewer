@@ -134,16 +134,18 @@ For fresh runs, use `mode: fresh (attempt 1)`.
 
 ## Important Rules
 
-1. **GLB between stages 3→6**; image stages use PNG
-2. **Upload images before referencing** — ComfyUI `LoadImage` only searches `input/`
-3. **Container runtime is Podman** — never use `docker`
-4. **Control vertex count at Trellis2 level** — `decimation_target` in stage 3, NOT stage 6
-5. **Stage 6 TARGET_VERTS must match stage 3 decimation_target**
-6. **Trellis2 timeout: 900s minimum** — organic shapes take 2-9 min
-7. **Retry transient failures** — ConnectionResetError during Trellis2 is transient
-8. **Concept prompts must include shadow-removal tokens** — shadows bake into 3D textures
-9. **CUDA_VISIBLE_DEVICES is always 0** inside containers (CDI remaps)
-10. **Blender render engine is `BLENDER_EEVEE`** — not `BLENDER_EEVEE_NEXT`
+1. **ALWAYS pass `--decimation-target` to Stage 3** — Trellis2 defaults to 500K if omitted, wasting a retry
+2. **GLB between stages 3→6**; image stages use PNG
+3. **Upload images before referencing** — ComfyUI `LoadImage` only searches `input/`
+4. **Container runtime is Podman** — never use `docker`
+5. **Control vertex count at Trellis2 level** — `decimation_target` in stage 3, NOT stage 6
+6. **Stage 6 TARGET_VERTS must match stage 3 decimation_target**
+7. **Trellis2 timeout: 900s minimum** — organic shapes take 2-9 min
+8. **Retry transient failures** — ConnectionResetError during Trellis2 is transient
+9. **Concept prompts must include shadow-removal tokens** — shadows bake into 3D textures
+10. **CUDA_VISIBLE_DEVICES is always 0** inside containers (CDI remaps)
+11. **Blender render engine is `BLENDER_EEVEE`** — not `BLENDER_EEVEE_NEXT`
+12. **Pass `--target-height` to gate6_final.py** when validating non-default heights
 
 ## Error Handling
 

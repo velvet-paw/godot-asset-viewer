@@ -189,3 +189,5 @@ After all gates pass, output:
 8. **Container runtime is Podman** — never use `docker` commands
 9. **CHORD is research-only** (Ubisoft ML License) — never ship commercially
 10. **3 attempts max per stage** — escalate to user on exhaustion
+11. **ALWAYS pass `decimation_target` to Stage 3** — never rely on Trellis2 default (500K)
+12. **Pass `--target-height` to gate6_final.py** when asset has non-default height (e.g., dogs=0.6m)
