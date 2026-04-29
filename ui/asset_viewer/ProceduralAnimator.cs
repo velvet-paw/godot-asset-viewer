@@ -140,7 +140,8 @@ namespace TeaLeaves.UI
 
         private void ApplyCreatureWalk(float phase, float amplitude)
         {
-            // Legs are single-bone limbs — can swing more without tearing
+            // Only animate legs and hips — torso/head/tail stay still to avoid
+            // weight-tearing artifacts on auto-weighted meshes.
             float legSwing = amplitude * 0.18f;
 
             // Diagonal gait: LF+RB in phase, RF+LB opposite
@@ -151,16 +152,6 @@ namespace TeaLeaves.UI
             SetRotation("right_front_leg", new Vector3(rfPhase * legSwing, 0, 0));
             SetRotation("left_back_leg", new Vector3(-lfPhase * legSwing * 0.8f, 0, 0));
             SetRotation("right_back_leg", new Vector3(-rfPhase * legSwing * 0.8f, 0, 0));
-
-            // Spine/chest: very subtle to avoid tearing at weight boundaries
-            float spineSway = Mathf.Sin(phase) * 0.01f * amplitude;
-            SetRotation("spine", new Vector3(0, spineSway, 0));
-
-            // Tail counter-sway (single-chain, safe for larger motion)
-            float tailSway = Mathf.Sin(phase + Mathf.Pi * 0.5f) * 0.04f * amplitude;
-            SetRotation("tail_base", new Vector3(0, tailSway, 0));
-            SetRotation("tail_mid", new Vector3(0, tailSway * 1.3f, 0));
-            SetRotation("tail_tip", new Vector3(0, tailSway * 1.6f, 0));
 
             // Hips bounce (vertical translation, double frequency)
             float bounce = Mathf.Abs(Mathf.Sin(phase)) * 0.005f * amplitude;
