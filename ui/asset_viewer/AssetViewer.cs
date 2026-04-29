@@ -166,6 +166,8 @@ namespace TeaLeaves.UI
             _light = new DirectionalLight3D();
             _light.Name = "Light";
             _light.Rotation = new Vector3(Mathf.DegToRad(-45), Mathf.DegToRad(45), 0);
+            _light.ShadowBias = 0.15f;
+            _light.ShadowNormalBias = 3.0f;
             _previewViewport.AddChild(_light);
 
             var env = new WorldEnvironment();
